@@ -35,23 +35,37 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
     let successCount = 0;
 
     rows.forEach((row, index) => {
+      // 关键修复：先trim整行，防止空行干扰
       if (!row.trim()) return;
-      let cols = row.split('\t');
+      
+      // 关键修复：分割后对每个字段trim()，去除末尾的 \r 和多余空格
+      let cols = row.split('\t').map(c => c.trim());
       
       if (cols.length >= 1) {
         const findLink = (columns: string[]) => {
-          return columns.find(c => c.trim().startsWith('http://') || c.trim().startsWith('https://')) || undefined;
+          // 增强识别：支持 http, https 和 www 开头
+          const match = columns.find(c => 
+            c.startsWith('http://') || 
+            c.startsWith('https://') || 
+            c.startsWith('www.')
+          );
+          
+          if (!match) return undefined;
+          
+          // 自动补全协议
+          return match.startsWith('www.') ? `https://${match}` : match;
         };
+        
         const link = findLink(cols);
 
         newJobs.push({
           id: `job-${Date.now()}-${index}`, 
-          company: cols[0]?.trim() || '未命名公司',
-          location: cols[1]?.trim() || '全国', 
-          type: cols[2]?.trim() || '全职',
-          requirement: cols[3]?.trim() || '不限',
-          title: cols[4]?.trim() || '通用岗', 
-          updateTime: cols[5]?.trim() || new Date().toISOString().split('T')[0],
+          company: cols[0] || '未命名公司',
+          location: cols[1] || '全国', 
+          type: cols[2] || '全职',
+          requirement: cols[3] || '不限',
+          title: cols[4] || '通用岗', 
+          updateTime: cols[5] || new Date().toISOString().split('T')[0],
           link: link
         });
         successCount++;

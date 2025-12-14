@@ -6,36 +6,41 @@ export const jobService = {
   // 获取所有岗位
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
+    let jobs: Job[] = [];
     
     // 如果没有配置云端，降级使用本地存储
     if (!supabase) {
-      // 仅在控制台提示，避免打扰用户
-      // console.warn('未配置Supabase，使用本地数据');
-      return storage.getJobs();
+      jobs = storage.getJobs();
+    } else {
+        const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+        if (error || !data) {
+            console.error('获取岗位失败:', error);
+            // 失败时返回空数组，避免数据混淆
+            jobs = [];
+        } else {
+            jobs = data.map((item: any) => ({
+                id: item.id,
+                company: item.company,
+                location: item.location,
+                type: item.type,
+                requirement: item.requirement,
+                title: item.title,
+                updateTime: item.update_time,
+                link: item.link
+            }));
+        }
     }
 
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('获取岗位失败:', error);
-      // 如果云端失败，降级回本地？或者提示错误。这里选择提示错误并返回空，避免数据混淆。
-      // 但为了体验，如果连接错，可以回退本地。不过这里为了严谨，我们返回空并打印错误。
-      return [];
-    }
-
-    // 转换数据格式以匹配前端类型
-    return data.map((item: any) => ({
-      id: item.id,
-      company: item.company,
-      location: item.location,
-      type: item.type,
-      requirement: item.requirement,
-      title: item.title,
-      updateTime: item.update_time,
-      link: item.link
+    // 关键修复：统一对所有字段进行清洗，防止历史坏数据（如回车符）导致显示错误
+    return jobs.map(j => ({
+      ...j,
+      company: j.company?.trim(),
+      title: j.title?.trim(),
+      link: j.link ? j.link.trim() : undefined
     }));
   },
 
