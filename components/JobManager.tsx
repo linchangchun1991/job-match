@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Upload, Trash2, CheckCircle, Download, Zap, Lock } from './Icons';
+import { Database, Upload, Trash2, CheckCircle, Download, Zap, Lock, XCircle } from './Icons';
 import { Job } from '../types';
 import { jobService } from '../services/jobService';
 
@@ -22,6 +22,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [pasteContent, setPasteContent] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // 监听 defaultOpen 变化，主要用于角色切换时
@@ -77,24 +78,25 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
   const handleParseAndUpload = async () => {
     if (!pasteContent.trim()) return;
     setIsLoading(true);
+    setFeedback(null);
+    setErrorMsg(null);
     
     const { newJobs, successCount } = parseRawData(pasteContent);
 
     if (successCount > 0) {
-      const success = await jobService.bulkInsert(newJobs);
+      const result = await jobService.bulkInsert(newJobs);
       
-      if (success) {
+      if (result.success) {
         setFeedback(`成功上传 ${successCount} 个岗位到云端`);
         setPasteContent('');
         const allJobs = await jobService.fetchAll();
         onUpdate(allJobs);
+        setTimeout(() => setFeedback(null), 3000);
       } else {
-        setFeedback('上传失败，请检查网络');
+        setErrorMsg(`上传失败: ${result.message}`);
       }
-      
-      setTimeout(() => setFeedback(null), 3000);
     } else {
-      setFeedback('未发现有效数据');
+      setErrorMsg('未发现有效数据，请检查格式');
     }
     setIsLoading(false);
   };
@@ -209,11 +211,23 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                   </button>
                 </div>
                 
-                {feedback && (
-                  <span className="flex items-center gap-2 text-green-500 text-xs font-bold animate-pulse">
-                    <CheckCircle className="w-3 h-3" /> {feedback}
-                  </span>
-                )}
+                <div className="flex flex-col items-end">
+                  {feedback && (
+                    <span className="flex items-center gap-2 text-green-500 text-xs font-bold animate-pulse mb-1">
+                      <CheckCircle className="w-3 h-3" /> {feedback}
+                    </span>
+                  )}
+                  {errorMsg && (
+                    <div className="bg-red-900/10 border border-red-900/20 px-3 py-2 rounded max-w-lg">
+                      <div className="flex items-start gap-2">
+                         <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
+                         <span className="text-red-300 text-[10px] font-mono whitespace-pre-wrap break-all leading-tight">
+                           {errorMsg}
+                         </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
