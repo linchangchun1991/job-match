@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, Database, Trash2, Settings } from './Icons';
+import { XCircle, Database, Trash2, Settings, Zap } from './Icons';
 import { storage } from '../services/storage';
 
 interface SettingsModalProps {
@@ -9,11 +9,16 @@ interface SettingsModalProps {
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }) => {
-  const [key, setKey] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [sbUrl, setSbUrl] = useState('');
+  const [sbKey, setSbKey] = useState('');
 
   useEffect(() => {
     if (isOpen) {
-      setKey(storage.getApiKey());
+      setApiKey(storage.getApiKey());
+      const sb = storage.getSupabaseConfig();
+      setSbUrl(sb.url);
+      setSbKey(sb.key);
     }
   }, [isOpen]);
 
@@ -31,48 +36,82 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
           </button>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+          {/* AI Config */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              API Key 配置 (通义千问)
+              AI 模型配置 (通义千问)
             </label>
             <input
               type="password"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
               placeholder="sk-..."
               className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
             />
+          </div>
+
+          {/* Cloud Database Config */}
+          <div className="pt-4 border-t border-white/10">
+            <div className="flex items-center gap-2 mb-3">
+               <Database className="w-4 h-4 text-blue-400" />
+               <h3 className="text-sm font-medium text-gray-300">云端数据库配置 (Supabase)</h3>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Project URL</label>
+                <input
+                  type="text"
+                  value={sbUrl}
+                  onChange={(e) => setSbUrl(e.target.value)}
+                  placeholder="https://xxx.supabase.co"
+                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Anon Public Key</label>
+                <input
+                  type="password"
+                  value={sbKey}
+                  onChange={(e) => setSbKey(e.target.value)}
+                  placeholder="eyJhb..."
+                  className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
             <p className="text-xs text-gray-500 mt-2">
-              用于驱动 AI 匹配引擎，Key 仅存储在本地浏览器中。
+              配置后，BD上传的岗位将实时同步给所有教练。
             </p>
           </div>
 
+          {/* Local Data Management */}
           <div className="pt-4 border-t border-white/10">
-            <h3 className="text-sm font-medium text-gray-400 mb-3">数据管理</h3>
+            <h3 className="text-sm font-medium text-gray-400 mb-3">本地数据管理</h3>
             <button 
               onClick={() => {
-                if(confirm('确定要清空所有岗位库数据吗？此操作不可恢复。')) {
+                if(confirm('确定要清空所有本地岗位数据吗？(不影响云端)')) {
                   storage.setJobs([]);
                   window.location.reload();
                 }
               }}
               className="flex items-center gap-2 text-red-400 hover:text-red-300 text-sm transition-colors"
             >
-              <Trash2 className="w-4 h-4" /> 清空岗位数据库
+              <Trash2 className="w-4 h-4" /> 清空本地缓存
             </button>
           </div>
 
           <div className="flex justify-end pt-4">
             <button
               onClick={() => {
-                storage.setApiKey(key);
-                onSave(key);
+                storage.setApiKey(apiKey);
+                storage.setSupabaseConfig(sbUrl, sbKey);
+                onSave(apiKey);
                 onClose();
               }}
               className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
             >
-              保存配置
+              保存并生效
             </button>
           </div>
         </div>

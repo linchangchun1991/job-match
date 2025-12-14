@@ -8,7 +8,9 @@ import HistoryDrawer from './components/HistoryDrawer';
 import { storage } from './services/storage';
 import { parseResume, matchJobs } from './services/aiService';
 import { parseFile } from './services/fileParser';
+import { jobService } from './services/jobService';
 import { AppState, Job, ParsedResume, UserRole, MatchSession } from './types';
+import { isCloudEnabled } from './services/supabase';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -25,22 +27,42 @@ const App: React.FC = () => {
     historyOpen: false
   });
 
+  const [cloudEnabled, setCloudEnabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Ensure key is loaded
-    const key = storage.getApiKey();
-    setState(s => ({
-      ...s,
-      apiKey: key,
-      jobs: storage.getJobs(),
-      matchHistory: storage.getSessions(),
-      matchResults: storage.getHistory()
-    }));
+    initData();
   }, []);
+
+  const initData = async () => {
+    const key = storage.getApiKey();
+    setCloudEnabled(isCloudEnabled());
+    
+    const history = storage.getSessions();
+    const results = storage.getHistory();
+    
+    try {
+      const jobs = await jobService.fetchAll();
+      setState(s => ({
+        ...s,
+        apiKey: key,
+        jobs: jobs,
+        matchHistory: history,
+        matchResults: results
+      }));
+    } catch (e) {
+      console.error("Failed to fetch jobs", e);
+    }
+  };
+
+  const refreshJobs = async () => {
+    const jobs = await jobService.fetchAll();
+    setState(s => ({ ...s, jobs }));
+  };
 
   const handleLogin = (role: UserRole) => {
     setState(s => ({ ...s, userRole: role }));
+    refreshJobs();
   };
 
   const handleLogout = () => {
@@ -134,6 +156,9 @@ const App: React.FC = () => {
     </div>
   );
 
+  const isCoach = state.userRole === 'coach';
+  const isBD = state.userRole === 'bd';
+
   return (
     <div className="min-h-screen bg-black text-white pb-20 font-sans">
       {/* Header */}
@@ -157,19 +182,33 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 mr-2 hidden sm:block">
-               当前身份: {state.userRole === 'coach' ? '职业教练' : '企业BD'}
+            <span className="text-xs text-gray-500 mr-2 hidden sm:flex items-center gap-2">
+               <span>当前身份: {isCoach ? '职业教练' : '企业BD'}</span>
+               {cloudEnabled ? (
+                 <span className="text-green-500 flex items-center gap-1 bg-green-900/20 px-2 py-0.5 rounded text-[10px] border border-green-900/50">
+                   <Zap className="w-3 h-3" /> 云端同步
+                 </span>
+               ) : (
+                 <span 
+                   onClick={() => setState(s => ({...s, settingsOpen: true}))}
+                   className="text-yellow-500 flex items-center gap-1 bg-yellow-900/20 px-2 py-0.5 rounded text-[10px] border border-yellow-900/50 cursor-pointer hover:bg-yellow-900/30"
+                 >
+                   <Settings className="w-3 h-3" /> 单机模式
+                 </span>
+               )}
             </span>
-            <button 
-              onClick={() => setState(s => ({ ...s, historyOpen: true }))}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all"
-            >
-              <Clock className="w-4 h-4" />
-              <span className="hidden sm:inline">历史记录</span>
-            </button>
+            {isCoach && (
+              <button 
+                onClick={() => setState(s => ({ ...s, historyOpen: true }))}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all"
+              >
+                <Clock className="w-4 h-4" />
+                <span className="hidden sm:inline">历史记录</span>
+              </button>
+            )}
             <button 
               onClick={() => setState(s => ({ ...s, settingsOpen: true }))}
-              className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all"
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all relative"
               title="系统设置"
             >
               <Settings className="w-4 h-4" />
@@ -186,123 +225,140 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* Left Column: Input */}
-          <div className="lg:col-span-5 space-y-6">
-            
-            <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-500" /> 简历解析 <span className="text-[10px] text-gray-600">RESUME PARSER</span>
-                </h2>
-                {state.parsedResume && (
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800">
-                    ATS评分: {state.parsedResume.atsScore}
-                  </span>
-                )}
-              </div>
+        
+        {/* Coach View: Resume & Match */}
+        {isCoach && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+            {/* Left Column: Input */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-500" /> 简历解析 <span className="text-[10px] text-gray-600">RESUME PARSER</span>
+                  </h2>
+                  {state.parsedResume && (
+                    <span className="text-xs font-mono px-2 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800">
+                      ATS评分: {state.parsedResume.atsScore}
+                    </span>
+                  )}
+                </div>
 
-              <div 
-                className="border border-dashed border-gray-700 rounded-lg p-6 mb-4 text-center hover:border-blue-500 hover:bg-blue-500/5 transition-all cursor-pointer group"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  className="hidden" 
-                  accept=".pdf,.docx,.doc,.txt"
-                  onChange={handleFileUpload}
+                <div 
+                  className="border border-dashed border-gray-700 rounded-lg p-6 mb-4 text-center hover:border-blue-500 hover:bg-blue-500/5 transition-all cursor-pointer group"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    className="hidden" 
+                    accept=".pdf,.docx,.doc,.txt"
+                    onChange={handleFileUpload}
+                  />
+                  <Upload className="w-6 h-6 text-gray-500 group-hover:text-blue-500 mx-auto mb-3 transition-colors" />
+                  <p className="text-xs text-gray-400">点击上传简历 (PDF / Word / TXT)</p>
+                </div>
+
+                <textarea
+                  value={state.currentResume}
+                  onChange={(e) => setState(s => ({ ...s, currentResume: e.target.value }))}
+                  placeholder="或直接在此处粘贴简历文本内容..."
+                  className="w-full h-32 bg-black border border-gray-800 rounded-lg p-4 text-xs text-gray-300 focus:border-blue-600 focus:outline-none transition-all resize-none mb-4 custom-scrollbar font-mono"
                 />
-                <Upload className="w-6 h-6 text-gray-500 group-hover:text-blue-500 mx-auto mb-3 transition-colors" />
-                <p className="text-xs text-gray-400">点击上传简历 (PDF / Word / TXT)</p>
+
+                <button
+                  onClick={handleStartAnalysis}
+                  disabled={state.isAnalyzing || state.isMatching}
+                  className="w-full py-3 rounded-lg bg-white text-black font-bold text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  {state.isAnalyzing ? (
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在深度解析...</span>
+                  ) : state.isMatching ? (
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在极速匹配...</span>
+                  ) : (
+                    '开始智能分析'
+                  )}
+                </button>
               </div>
 
-              <textarea
-                value={state.currentResume}
-                onChange={(e) => setState(s => ({ ...s, currentResume: e.target.value }))}
-                placeholder="或直接在此处粘贴简历文本内容..."
-                className="w-full h-32 bg-black border border-gray-800 rounded-lg p-4 text-xs text-gray-300 focus:border-blue-600 focus:outline-none transition-all resize-none mb-4 custom-scrollbar font-mono"
-              />
+              {/* Analysis Result */}
+              {state.parsedResume && (
+                <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6 animate-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex items-center justify-between mb-6">
+                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">候选人画像 CANDIDATE PROFILE</h3>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-800">
+                     <div className="w-10 h-10 rounded bg-gray-800 flex items-center justify-center text-gray-400">
+                        <User className="w-5 h-5" />
+                     </div>
+                     <div>
+                        <div className="text-white font-bold text-base">{state.parsedResume.name || '未命名候选人'}</div>
+                        <div className="text-xs text-gray-400 mt-0.5 font-mono">
+                          {state.parsedResume.graduationType} | {state.parsedResume.education} | {state.parsedResume.major}
+                        </div>
+                     </div>
+                  </div>
 
-              <button
-                onClick={handleStartAnalysis}
-                disabled={state.isAnalyzing || state.isMatching}
-                className="w-full py-3 rounded-lg bg-white text-black font-bold text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-              >
-                {state.isAnalyzing ? (
-                  <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在深度解析...</span>
-                ) : state.isMatching ? (
-                  <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在极速匹配...</span>
-                ) : (
-                  '开始智能分析'
-                )}
-              </button>
+                  {state.parsedResume.atsDimensions && (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 mb-6">
+                      <ScoreBar label="教育背景" score={state.parsedResume.atsDimensions.education} />
+                      <ScoreBar label="实习经历" score={state.parsedResume.atsDimensions.experience} />
+                      <ScoreBar label="岗位匹配" score={state.parsedResume.atsDimensions.relevance} />
+                      <ScoreBar label="稳定性" score={state.parsedResume.atsDimensions.stability} />
+                      <ScoreBar label="专业技能" score={state.parsedResume.atsDimensions.skills} />
+                      <ScoreBar label="领导力" score={state.parsedResume.atsDimensions.leadership} />
+                      <ScoreBar label="语言能力" score={state.parsedResume.atsDimensions.language} />
+                      <ScoreBar label="证书资质" score={state.parsedResume.atsDimensions.certificate} />
+                    </div>
+                  )}
+                  
+                  {state.parsedResume.atsAnalysis && (
+                    <div className="bg-black/50 rounded-lg p-4 border border-gray-800">
+                      <div className="text-xs font-bold text-blue-500 mb-2 flex items-center gap-2">
+                        <BarChart3 className="w-3 h-3" /> AI 智能诊断
+                      </div>
+                      <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap font-sans">
+                        {state.parsedResume.atsAnalysis}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Analysis Result */}
-            {state.parsedResume && (
-              <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6 animate-in slide-in-from-bottom-4 duration-500">
-                <div className="flex items-center justify-between mb-6">
-                   <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">候选人画像 CANDIDATE PROFILE</h3>
-                </div>
-                
-                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-800">
-                   <div className="w-10 h-10 rounded bg-gray-800 flex items-center justify-center text-gray-400">
-                      <User className="w-5 h-5" />
-                   </div>
-                   <div>
-                      <div className="text-white font-bold text-base">{state.parsedResume.name || '未命名候选人'}</div>
-                      <div className="text-xs text-gray-400 mt-0.5 font-mono">
-                        {state.parsedResume.graduationType} | {state.parsedResume.education} | {state.parsedResume.major}
-                      </div>
-                   </div>
-                </div>
-
-                {state.parsedResume.atsDimensions && (
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 mb-6">
-                    <ScoreBar label="教育背景" score={state.parsedResume.atsDimensions.education} />
-                    <ScoreBar label="实习经历" score={state.parsedResume.atsDimensions.experience} />
-                    <ScoreBar label="岗位匹配" score={state.parsedResume.atsDimensions.relevance} />
-                    <ScoreBar label="稳定性" score={state.parsedResume.atsDimensions.stability} />
-                    <ScoreBar label="专业技能" score={state.parsedResume.atsDimensions.skills} />
-                    <ScoreBar label="领导力" score={state.parsedResume.atsDimensions.leadership} />
-                    <ScoreBar label="语言能力" score={state.parsedResume.atsDimensions.language} />
-                    <ScoreBar label="证书资质" score={state.parsedResume.atsDimensions.certificate} />
-                  </div>
-                )}
-                
-                {state.parsedResume.atsAnalysis && (
-                  <div className="bg-black/50 rounded-lg p-4 border border-gray-800">
-                    <div className="text-xs font-bold text-blue-500 mb-2 flex items-center gap-2">
-                      <BarChart3 className="w-3 h-3" /> AI 智能诊断
-                    </div>
-                    <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap font-sans">
-                      {state.parsedResume.atsAnalysis}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Right Column: Results */}
+            <div className="lg:col-span-7">
+               <MatchResults results={state.matchResults} candidateName={state.parsedResume?.name || '候选人'} />
+            </div>
           </div>
+        )}
 
-          {/* Right Column: Results */}
-          <div className="lg:col-span-7">
-             <MatchResults results={state.matchResults} candidateName={state.parsedResume?.name || '候选人'} />
+        {/* BD View: Dashboard Header */}
+        {isBD && (
+          <div className="text-center py-12">
+            <h1 className="text-3xl font-bold text-white mb-2">企业岗位库管理控制台</h1>
+            <p className="text-gray-400">BD 专属权限 | 实时同步至所有教练终端</p>
           </div>
+        )}
 
-        </div>
-
+        {/* Job Manager (Always visible but read-only for coaches) */}
         <JobManager 
           jobs={state.jobs} 
           onUpdate={(updated) => setState(s => ({ ...s, jobs: updated }))}
+          onRefresh={refreshJobs}
+          readOnly={isCoach}
+          defaultOpen={isBD}
         />
       </main>
 
       <SettingsModal 
         isOpen={state.settingsOpen} 
         onClose={() => setState(s => ({ ...s, settingsOpen: false }))}
-        onSave={(key) => setState(s => ({ ...s, apiKey: key }))}
+        onSave={(key) => {
+          setState(s => ({ ...s, apiKey: key }));
+          setCloudEnabled(isCloudEnabled());
+          refreshJobs();
+        }}
       />
       
       <HistoryDrawer 
