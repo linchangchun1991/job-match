@@ -2,6 +2,8 @@ import { getSupabase, isCloudEnabled } from './supabase';
 import { Job } from '../types';
 import { storage } from './storage';
 
+const LINK_SEPARATOR = ':::LINK:::';
+
 export const jobService = {
   // 获取所有岗位
   fetchAll: async (): Promise<Job[]> => {
@@ -22,16 +24,29 @@ export const jobService = {
             // 失败时返回空数组，避免数据混淆
             jobs = [];
         } else {
-            jobs = data.map((item: any) => ({
-                id: item.id,
-                company: item.company,
-                location: item.location,
-                type: item.type,
-                requirement: item.requirement,
-                title: item.title,
-                updateTime: item.update_time,
-                link: item.link
-            }));
+            jobs = data.map((item: any) => {
+                // 兼容逻辑：检查 requirement 中是否包含附加的链接
+                let req = item.requirement || '';
+                let link = item.link;
+
+                if (req.includes(LINK_SEPARATOR)) {
+                    const parts = req.split(LINK_SEPARATOR);
+                    req = parts[0];
+                    // 如果原字段没有 link，则使用 requirement 中的
+                    link = link || parts[1];
+                }
+
+                return {
+                    id: item.id,
+                    company: item.company,
+                    location: item.location,
+                    type: item.type,
+                    requirement: req,
+                    title: item.title,
+                    updateTime: item.update_time,
+                    link: link
+                };
+            });
         }
     }
 
@@ -55,15 +70,23 @@ export const jobService = {
     }
 
     // 转换为数据库字段格式 (下划线命名)
-    const dbRows = jobs.map(j => ({
-      company: j.company,
-      location: j.location,
-      type: j.type,
-      requirement: j.requirement,
-      title: j.title,
-      update_time: j.updateTime,
-      link: j.link
-    }));
+    // 修复：为了兼容旧版数据库架构（可能缺少 link 列），将 link 数据附加到 requirement 字段存储
+    const dbRows = jobs.map(j => {
+      let req = j.requirement || '';
+      if (j.link) {
+        req = `${req}${LINK_SEPARATOR}${j.link}`;
+      }
+
+      return {
+        company: j.company,
+        location: j.location,
+        type: j.type,
+        requirement: req,
+        title: j.title,
+        update_time: j.updateTime,
+        // link: j.link // 移除直接写入 link 字段，防止 schema 报错
+      };
+    });
 
     const { error } = await supabase
       .from('jobs')
