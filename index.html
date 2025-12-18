@@ -2,22 +2,22 @@
 <html lang="zh-CN" class="dark">
   <head>
     <script>
-      // 初始化全局环境变量，确保代码中访问 process.env 不报错
+      // 初始化全局环境变量
       window.process = { 
         env: { 
-          API_KEY: "AIzaSyBRqHwNY84LUCnj2F5qApWUf_RlJ1vW2Zc" 
+          // 已更新为您的新 API Key
+          API_KEY: "sk-668c28bae516493d9ea8a3662118ec98" 
         } 
       };
       
-      // 全局错误捕获，针对白屏/黑屏问题提供反馈
+      // 全局错误捕获
       window.onerror = function(message, source, lineno, colno, error) {
         console.error('CRITICAL_ERROR:', message, 'at', source, lineno, colno);
         const root = document.getElementById('root');
         if (root && (root.innerHTML === '' || root.innerHTML.includes('Loading'))) {
-          root.innerHTML = `<div style="color: white; padding: 40px; font-family: sans-serif; text-align: center; background: #000;">
+          root.innerHTML = `<div style="color: white; padding: 40px; font-family: sans-serif; text-align: center; background: #000; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
             <h1 style="color: #ef4444; margin-bottom: 16px;">应用启动失败</h1>
             <p style="color: #9ca3af; font-size: 14px;">${message}</p>
-            <p style="color: #4b5563; font-size: 12px; margin-top: 10px;">${source}:${lineno}:${colno}</p>
             <button onclick="location.reload()" style="background: #2563eb; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; margin-top: 24px; font-weight: bold;">重新加载页面</button>
           </div>`;
         }
@@ -92,7 +92,7 @@
 </head>
   <body>
     <div id="root"></div>
-    <!-- Vite 规范：使用相对路径引用入口文件，确保 build 时能正确转换路径 -->
+    <!-- Vite 构建时会自动处理此入口，移除 importmap 后将通过 bundle 加载 -->
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

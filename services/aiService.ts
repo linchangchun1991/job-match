@@ -7,25 +7,23 @@ function stripMarkdown(str: string): string {
 }
 
 /**
- * 智能清洗岗位数据 - 使用 Gemini 3.0 Flash
+ * 智能清洗岗位数据 - 使用 Gemini 3.0 Flash (极速模式)
  */
 export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  // 遵循原则：使用 process.env.API_KEY 初始化
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const systemInstruction = `你是一个专业的数据解析助手。任务是解析从“腾讯云智服知识库”导出的杂乱文本。
+  const systemInstruction = `你是一个专业的数据解析助手。任务是解析文本中的岗位信息。
 **处理规则**：
-1. **剔除噪音**：忽略所有时间戳、忽略发言人姓名。
-2. **提取四要素**：
-   - **company**: 公司名称（去除“急招”、“置顶”等修饰语）。
+1. **提取四要素**：
+   - **company**: 公司名称。
    - **title**: 岗位名。
-   - **location**: 地点（若未提及则填“全国”）。
-   - **link**: 投递链接。必须是完整链接。
-3. **输出格式**：返回纯 JSON 数组。`;
+   - **location**: 地点（默认“全国”）。
+   - **link**: 投递链接。
+2. **输出格式**：返回纯 JSON 数组。`;
 
-  const chunkSize = 4000;
+  const chunkSize = 6000; // 增大分块提高效率
   const textChunks = [];
   for (let i = 0; i < rawText.length; i += chunkSize) {
     textChunks.push(rawText.slice(i, i + chunkSize));
@@ -39,10 +37,11 @@ export const parseSmartJobs = async (
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `请提取以下知识库片段中的岗位信息：\n${textChunks[i]}`,
+        contents: `提取岗位：\n${textChunks[i]}`,
         config: {
           systemInstruction,
-          responseMimeType: "application/json"
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0 } // 禁用思考以加快速度
         }
       });
 
@@ -68,13 +67,13 @@ export const parseSmartJobs = async (
 };
 
 /**
- * 简历解析 - 使用 Gemini 3.0 Pro 深度分析
+ * 简历解析 - 使用 Gemini 3.0 Flash 极速深度分析
  */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const currentDate = new Date().toISOString().split('T')[0];
   const systemInstruction = `你是一个严谨的简历解析引擎。当前日期是 ${currentDate}。
-请按要求解析简历并返回 JSON。所有字段必须为字符串或数值，禁止嵌套对象。
+请按要求解析简历并返回 JSON。禁止嵌套对象。
 输出 JSON 结构：
 {
   "name": "姓名",
@@ -100,12 +99,12 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `简历内容：\n${text.slice(0, 10000)}`,
+      model: 'gemini-3-flash-preview', // 切换到 Flash 以极速响应
+      contents: `简历内容：\n${text.slice(0, 15000)}`,
       config: {
         systemInstruction,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 4000 }
+        thinkingConfig: { thinkingBudget: 0 } // 极速模式
       }
     });
 
@@ -113,7 +112,7 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("Parse Resume Error:", e);
-    throw new Error("简历解析失败，AI 系统暂不可用，请稍后再试");
+    throw new Error("简历解析失败，请检查网络或稍后再试");
   }
 };
 
@@ -140,13 +139,14 @@ export const matchJobs = async (
       contents: userPrompt,
       config: {
         systemInstruction,
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 } // 极速模式
       }
     });
 
     const cleaned = stripMarkdown(response.text || '');
     const parsed = JSON.parse(cleaned);
-    const list = parsed.matches || parsed;
+    const list = Array.isArray(parsed.matches) ? parsed.matches : (Array.isArray(parsed) ? parsed : []);
 
     const results = list.map((m: any) => {
       const job = validJobs[m.i];
