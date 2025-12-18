@@ -2,22 +2,23 @@
 <html lang="zh-CN" class="dark">
   <head>
     <script>
-      // 必须在所有脚本之前初始化全局环境变量
+      // 初始化全局环境变量，确保代码中访问 process.env 不报错
       window.process = { 
         env: { 
           API_KEY: "AIzaSyBRqHwNY84LUCnj2F5qApWUf_RlJ1vW2Zc" 
         } 
       };
       
-      // 全局错误捕获，方便调试黑屏
+      // 全局错误捕获，针对白屏/黑屏问题提供反馈
       window.onerror = function(message, source, lineno, colno, error) {
-        console.error('CRITICAL_ERROR:', message);
+        console.error('CRITICAL_ERROR:', message, 'at', source, lineno, colno);
         const root = document.getElementById('root');
-        if (root && root.innerHTML === '') {
-          root.innerHTML = `<div style="color: white; padding: 40px; font-family: sans-serif; text-align: center;">
-            <h1 style="color: #ef4444;">应用启动失败</h1>
-            <p style="color: #9ca3af;">${message}</p>
-            <button onclick="location.reload()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px;">重试加载</button>
+        if (root && (root.innerHTML === '' || root.innerHTML.includes('Loading'))) {
+          root.innerHTML = `<div style="color: white; padding: 40px; font-family: sans-serif; text-align: center; background: #000;">
+            <h1 style="color: #ef4444; margin-bottom: 16px;">应用启动失败</h1>
+            <p style="color: #9ca3af; font-size: 14px;">${message}</p>
+            <p style="color: #4b5563; font-size: 12px; margin-top: 10px;">${source}:${lineno}:${colno}</p>
+            <button onclick="location.reload()" style="background: #2563eb; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; margin-top: 24px; font-weight: bold;">重新加载页面</button>
           </div>`;
         }
       };
@@ -27,10 +28,11 @@
     <title>HIGHMARK CAREER MATCH PRO</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 基础外部库保持 CDN 加载（非 React 核心库） -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
@@ -79,10 +81,10 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
     "vite": "https://esm.sh/vite@^7.3.0",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.88.0"
   }
 }
@@ -90,7 +92,7 @@
 </head>
   <body>
     <div id="root"></div>
-    <!-- Vite 模式下，src 路径必须准确指向入口文件 -->
-    <script type="module" src="/index.tsx"></script>
+    <!-- Vite 规范：使用相对路径引用入口文件，确保 build 时能正确转换路径 -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
