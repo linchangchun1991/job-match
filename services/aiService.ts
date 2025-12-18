@@ -6,10 +6,6 @@ function stripMarkdown(str: string): string {
   return str.replace(/```(json)?/g, '').replace(/```/g, '').trim();
 }
 
-/**
- * 自动识别并调用 AI 接口
- * 兼容 Gemini (AIza...) 和 DeepSeek (sk-...)
- */
 async function callAI(params: {
   systemInstruction: string;
   prompt: string;
@@ -17,10 +13,8 @@ async function callAI(params: {
   temperature?: number;
 }) {
   const key = (window as any).process?.env?.API_KEY || (process as any).env?.API_KEY || "";
-  
-  if (!key) throw new Error("API Key 未设置");
+  if (!key) throw new Error("API Key 未设置，请检查环境变量。");
 
-  // 如果是 DeepSeek Key (sk-开头)
   if (key.startsWith('sk-')) {
     const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
@@ -34,7 +28,8 @@ async function callAI(params: {
           { role: "system", content: params.systemInstruction },
           { role: "user", content: params.prompt }
         ],
-        temperature: params.temperature ?? 0.7,
+        temperature: params.temperature ?? 0.3,
+        // 强制要求 JSON 时，确保 systemInstruction 包含 JSON 字样
         response_format: params.responseMimeType === "application/json" ? { type: "json_object" } : undefined
       })
     });
@@ -48,7 +43,6 @@ async function callAI(params: {
     return { text: data.choices[0].message.content };
   } 
   
-  // 否则默认使用 Gemini SDK
   const ai = new GoogleGenAI({ apiKey: key });
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -64,7 +58,7 @@ async function callAI(params: {
 
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const currentDate = new Date().toISOString().split('T')[0];
-  const systemInstruction = `你是一位顶尖技术猎头专家。从简历中提取核心价值。必须严格返回 JSON 格式。`;
+  const systemInstruction = `你是一位顶尖技术猎头。任务：从简历提取 JSON 画像。必须包含核心领域、资历、技能标签。`;
 
   try {
     const res = await callAI({
@@ -77,8 +71,8 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     const data = JSON.parse(stripMarkdown(res.text || '{}'));
     return {
       ...data,
-      coreDomain: data.coreDomain || "未识别领域",
-      seniorityLevel: data.seniorityLevel || "未识别资历",
+      coreDomain: data.coreDomain || "通用领域",
+      seniorityLevel: data.seniorityLevel || "待评估",
       coreTags: data.coreTags || [],
       tags: data.tags || { degree: [], exp: [], skill: [], intent: [] },
       atsDimensions: data.atsDimensions || { education: 60, skills: 60, project: 60, internship: 60, quality: 60 }
@@ -93,15 +87,15 @@ export const matchJobs = async (
   jobs: Job[],
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
-  const validJobs = jobs.filter(j => j.company && j.title).slice(0, 100); 
+  const validJobs = jobs.slice(0, 100); 
   if (validJobs.length === 0) return [];
 
-  const systemInstruction = `你是一位职业规划师。根据简历适配岗位。必须返回 JSON: { "matches": [{ "i": 索引, "s": 匹配分(60-100), "reasons": ["理由"], "coach_advice": "推荐金句" }] }`;
+  const systemInstruction = `匹配简历与岗位，返回 JSON 数组格式。`;
 
   try {
     const res = await callAI({
       systemInstruction,
-      prompt: `简历信息: ${JSON.stringify(resume)}\n职位库: ${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}`,
+      prompt: `简历: ${JSON.stringify(resume)}\n职位库: ${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}`,
       responseMimeType: "application/json",
       temperature: 0.5
     });
@@ -115,7 +109,7 @@ export const matchJobs = async (
         score: m.s,
         matchReasons: m.reasons || [],
         mismatchReasons: [],
-        recommendation: m.coach_advice || '推荐该岗位。',
+        recommendation: m.coach_advice || '适配',
         tips: '',
         job: job
       };
@@ -124,7 +118,6 @@ export const matchJobs = async (
     if (onProgress) onProgress(results);
     return results;
   } catch (e) {
-    console.error("Match Error:", e);
     return [];
   }
 };
@@ -133,30 +126,42 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  const chunkSize = 8000;
+  // 增加单段文本长度，减少请求次数
+  const chunkSize = 15000;
   const chunks = [];
   for (let i = 0; i < rawText.length; i += chunkSize) chunks.push(rawText.slice(i, i + chunkSize));
 
   let allJobs: any[] = [];
+  const systemInstruction = `你是一个精准的招聘数据提取助手。
+任务：从文本（包含链接、公司名、地点、职位名，常用 | 分隔）中提取结构化岗位。
+要求：
+1. 必须返回 JSON 格式。格式必须是包含岗位的数组：[{"company": "...", "title": "...", "location": "...", "link": "..."}]。
+2. 即使数据不全也要尽量提取。微信公众号链接（mp.weixin.qq.com）通常是 link 字段。
+3. 如果该段落没找到任何岗位，返回空数组 []。`;
+
   for (let i = 0; i < chunks.length; i++) {
     if (onProgress) onProgress(i + 1, chunks.length);
     try {
       const res = await callAI({
-        systemInstruction: "你是一个数据清洗助手。将非结构化的文本提取为岗位信息。必须返回 JSON 数组格式，包含 company, title, location, link 字段。如果没有找到数据，返回空数组 []。",
-        prompt: `请从以下文本中提取招聘信息：\n${chunks[i]}`,
+        systemInstruction,
+        prompt: `请提取以下文本中的招聘岗位：\n${chunks[i]}`,
         responseMimeType: "application/json",
         temperature: 0.1
       });
       
       const cleaned = stripMarkdown(res.text || "[]");
-      const data = JSON.parse(cleaned);
+      let data = JSON.parse(cleaned);
+      
+      // 容错处理：如果 AI 返回的是 { "jobs": [...] } 而不是数组
+      if (data && !Array.isArray(data) && data.jobs) {
+        data = data.jobs;
+      }
+      
       if (Array.isArray(data)) {
         allJobs = [...allJobs, ...data];
       }
     } catch (e: any) {
-      console.error(`分段 ${i+1} 解析失败:`, e);
-      // 如果发生 API 错误，直接抛出，让用户知道 Key 是否有问题
-      if (e.message.includes('API') || e.message.includes('Key')) throw e;
+      console.warn(`第 ${i+1} 段解析异常:`, e.message);
     }
   }
   return allJobs;
