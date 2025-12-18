@@ -3,7 +3,7 @@ import { Job, ParsedResume, MatchResult } from '../types';
 
 /**
  * 极强力 JSON 提取器
- * 无论 AI 返回多少废话，都能定位并完整切出 JSON 块
+ * 确保即使 AI 返回了 Markdown 包裹也能正确提取
  */
 function stripMarkdown(str: string): string {
   if (!str) return "";
@@ -36,7 +36,7 @@ function stripMarkdown(str: string): string {
 }
 
 /**
- * 标准 DeepSeek API 调用
+ * DeepSeek API 调用核心
  */
 async function callAI(params: {
   systemInstruction: string;
@@ -44,7 +44,7 @@ async function callAI(params: {
   temperature?: number;
 }) {
   const key = (window as any).process?.env?.API_KEY || "";
-  if (!key) throw new Error("API Key 未设置。");
+  if (!key) throw new Error("API Key 未在 index.html 中正确配置。");
 
   const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
     method: "POST",
@@ -140,46 +140,46 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  // 核心修复：不再按字符长度切分，必须按行切分，防止一行被切断导致无法识别
+  // 将原始文本按行切分，不再做预过滤，直接交给 AI 识别
   const lines = rawText.split('\n')
     .map(line => line.trim())
-    .filter(line => line.includes('|') && line.length > 10);
+    .filter(line => line.length > 5); // 仅过滤掉极短的干扰行
   
   if (lines.length === 0) return [];
 
-  const batchSize = 8; // 每组处理 8 行，保证输出 JSON 不会因为过长而截断
+  // 极致稳定批次：每组只处理 5 行
+  // 理由：您的数据一行可能拆出 20 个岗位，5 行就是 100 个岗位，JSON 长度极易爆表。
+  const batchSize = 5; 
   const batches = [];
   for (let i = 0; i < lines.length; i += batchSize) {
     batches.push(lines.slice(i, i + batchSize));
   }
 
   let allJobs: any[] = [];
-  const systemInstruction = `你是一个精准的招聘数据结构化机器人。
-输入文本格式：[行业] | [公司] | [岗位列表] | [地点] | [链接] | [备注]
+  const systemInstruction = `你是一个精准的招聘数据解析器。
+输入数据是由管道符 (|) 分隔的文本，每行代表一家公司的招聘汇总。
 
-核心规则：
-1. 每一行是一个独立的记录。
-2. 必须识别第2列为 "company"，第3列为 "title"，第4列为 "location"，第5列为 "link"。
-3. 强制要求：如果第3列（岗位列表）包含多个岗位名（用逗号、顿号、空格、括号或“及”分隔），你必须将该行拆分为多个独立的 JSON 对象。
-4. 输出格式必须是合法的 JSON，包含一个名为 "jobs" 的数组。
+解析规则：
+1. 识别结构：[行业/类别] | [公司名] | [岗位列表] | [地点] | [直投链接] | [其他]
+2. 核心任务：提取第2列(公司)和第3列(岗位)。
+3. 关键动作：第3列通常包含多个岗位（如：产品类，技术类），你必须将其拆分为多个独立的岗位对象。
+4. 分隔符识别：第3列的岗位可能被逗号(，,)、顿号(、)、空格、或甚至没有分隔符（需语义拆分）连接，请务必彻底拆开。
+5. 必须返回包含 "jobs" 数组的 JSON 对象。
 
-示例输入：
-游戏 | 4399 | 产品类，技术类 | 广州 | https://link
-
-示例输出：
+JSON 结构示例：
 {
   "jobs": [
-    {"company": "4399", "title": "产品类", "location": "广州", "link": "https://link"},
-    {"company": "4399", "title": "技术类", "location": "广州", "link": "https://link"}
+    {"company": "公司A", "title": "岗位1", "location": "地点", "link": "链接"},
+    {"company": "公司A", "title": "岗位2", "location": "地点", "link": "链接"}
   ]
 }
 
-严禁合并多个岗位！严禁输出非 JSON 格式！`;
+严禁丢失链接，严禁合并岗位，严禁输出非 JSON 文本。`;
 
   for (let i = 0; i < batches.length; i++) {
     if (onProgress) onProgress(i + 1, batches.length);
     try {
-      const prompt = `请解析并拆分以下招聘行：\n\n${batches[i].join('\n')}`;
+      const prompt = `请解析并拆分以下招聘信息（第3列为岗位池）：\n\n${batches[i].join('\n')}`;
       const res = await callAI({
         systemInstruction,
         prompt,
@@ -187,14 +187,17 @@ export const parseSmartJobs = async (
       });
       
       const cleaned = stripMarkdown(res.text);
+      if (!cleaned) continue;
+
       const data = JSON.parse(cleaned);
-      
       const jobsInBatch = data.jobs || (Array.isArray(data) ? data : []);
+      
       if (Array.isArray(jobsInBatch)) {
         allJobs = [...allJobs, ...jobsInBatch];
       }
     } catch (e: any) {
-      console.warn(`[解析警告] 第 ${i+1} 批次解析失败:`, e.message);
+      console.error(`[解析失败] 第 ${i+1} 批次:`, e.message);
+      // 如果某一批次失败，继续处理下一批，而不是直接中断
     }
   }
   return allJobs;
