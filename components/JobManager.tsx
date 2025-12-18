@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Database, Trash2, Zap, Sparkles, Lightbulb, ExternalLink, Lock, AlertTriangle } from './Icons';
 import { Job } from '../types';
@@ -119,7 +120,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                 </div>
                 <div className="bg-orange-900/10 border border-orange-900/20 rounded-lg p-4">
                    <p className="text-[10px] text-gray-400 leading-relaxed">
-                     DeepSeek API 解析非常快。建议单次粘贴不超过 500 条岗位信息以保证准确度。
+                     Gemini API 解析非常快。建议单次粘贴不超过 500 条岗位信息以保证准确度。
                    </p>
                 </div>
               </div>
