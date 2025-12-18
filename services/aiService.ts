@@ -3,13 +3,12 @@ import { Job, ParsedResume, MatchResult } from '../types';
 
 /**
  * 强化版 JSON 提取器
- * 支持 Markdown 包裹和纯净 JSON 字符串
+ * 用于简历解析（简历解析仍保留 AI 能力）
  */
 function stripMarkdown(str: string): string {
   if (!str) return "";
   const trimmed = str.trim();
   
-  // 尝试直接解析
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
 
@@ -25,7 +24,7 @@ function stripMarkdown(str: string): string {
 }
 
 /**
- * DeepSeek API 调用核心
+ * DeepSeek/Gemini API 调用核心（仅用于简历分析）
  */
 async function callAI(params: {
   systemInstruction: string;
@@ -35,6 +34,9 @@ async function callAI(params: {
   const key = (window as any).process?.env?.API_KEY || "";
   if (!key) throw new Error("API Key 未在 index.html 中正确配置。");
 
+  // 这里为了保持与之前配置的一致性，依然指向 API 地址。
+  // 注意：如果是 Gemini，通常会使用 @google/genai SDK，
+  // 但此处遵循用户之前代码中使用 fetch 的结构。
   const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -54,13 +56,16 @@ async function callAI(params: {
 
   if (!response.ok) {
     const err = await response.json();
-    throw new Error(`DeepSeek API 错误: ${err.error?.message || response.statusText}`);
+    throw new Error(`AI API 错误: ${err.error?.message || response.statusText}`);
   }
 
   const data = await response.json();
   return { text: data.choices[0].message.content || '' };
 }
 
+/**
+ * 简历解析（保留 AI 能力）
+ */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const systemInstruction = `你是一位顶级 HR 专家。请从简历文本中提取 JSON 画像。字段包含：coreDomain, seniorityLevel, coreTags, atsDimensions, atsAnalysis, atsScore, name, phone, email, education, university, major, graduationYear, skills, experience, jobPreference。`;
 
@@ -86,6 +91,9 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
   }
 };
 
+/**
+ * 岗位匹配（保留 AI 能力）
+ */
 export const matchJobs = async (
   resume: ParsedResume, 
   jobs: Job[],
@@ -125,70 +133,86 @@ export const matchJobs = async (
   }
 };
 
+/**
+ * 岗位数据解析：已完全替换为本地高性能解析逻辑 (基于 gemini_fixed_parser.js)
+ */
 export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number, errorLines?: string[]) => void
 ): Promise<any[]> => {
-  // 支持中英文竖线: | (U+007C) 和 丨 (U+4E28)
-  const delimiterRegex = /[|丨]/;
-  const lines = rawText.split('\n')
-    .map(line => line.trim())
-    .filter(line => delimiterRegex.test(line) && line.length > 5 && !line.includes('==='));
-  
-  if (lines.length === 0) return [];
+  if (!rawText || typeof rawText !== 'string') return [];
 
-  let allJobs: any[] = [];
-  let errorLines: string[] = [];
+  const lines = rawText.split('\n');
+  const allJobs: any[] = [];
+  const errorLines: string[] = [];
+  const total = lines.length;
 
-  const systemInstruction = `你是一个精准的招聘数据解析器。
-输入是以竖线（| 或 丨）分隔的行数据。
+  for (let i = 0; i < total; i++) {
+    let line = lines[i].trim();
+    const lineNumber = i + 1;
 
-解析规则：
-1. 识别字段数量：
-   - 5个字段：[行业] | [公司] | [岗位池] | [地点] | [链接]
-   - 4个字段：[公司] | [岗位池] | [地点] | [链接]
-2. 强制要求：
-   - 如果第3列（5字段）或第2列（4字段）包含多个岗位，必须拆分为多个对象。
-   - 验证：[公司] 和 [链接] 必须存在且非空。
-3. 错误处理：如果字段数量不是 4 或 5，或者缺少关键字段，请在返回的 JSON 中包含 "error" 字段说明原因。
-
-输出格式示例：
-{
-  "jobs": [{"company": "A", "title": "B", "location": "C", "link": "D"}],
-  "error": null
-}`;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (onProgress) onProgress(i + 1, lines.length, errorLines);
-    try {
-      const res = await callAI({
-        systemInstruction,
-        prompt: `解析此行内容：\n${lines[i]}`,
-        temperature: 0.1
-      });
-      
-      const cleaned = stripMarkdown(res.text);
-      if (!cleaned) continue;
-
-      const data = JSON.parse(cleaned);
-      
-      if (data.error) {
-        errorLines.push(`第 ${i+1} 行: ${data.error} (内容: ${lines[i].slice(0,20)}...)`);
-        continue;
-      }
-
-      const jobsInLine = data.jobs || [];
-      if (Array.isArray(jobsInLine)) {
-        // 二次验证必填项
-        const validJobs = jobsInLine.filter(j => j.company && j.link);
-        if (validJobs.length < jobsInLine.length) {
-            errorLines.push(`第 ${i+1} 行: 存在缺失[公司]或[链接]的子岗位`);
-        }
-        allJobs = [...allJobs, ...validJobs];
-      }
-    } catch (e: any) {
-      errorLines.push(`第 ${i+1} 行: 解析异常 - ${e.message}`);
+    // 1. 跳过标题行、分割线和空行
+    if (!line || 
+        line.startsWith('=') || 
+        line.startsWith('#') ||
+        line.includes('最新岗位大表') ||
+        (line.includes('共') && line.includes('条')) ||
+        line.includes('批次') ||
+        line.includes('岗位数据') ||
+        (line.includes('公司') && line.includes('岗位') && line.includes('链接'))) {
+      if (onProgress) onProgress(lineNumber, total, errorLines);
+      continue;
     }
+
+    // 2. 支持中文和英文竖线分隔符
+    const separator = /[丨|]/;
+    let parts = line.split(separator).map(p => p.trim());
+
+    // 3. 处理字段分割（兼容模式：合并链接前多余的竖线）
+    if (parts.length > 4) {
+      const lastPart = parts[parts.length - 1];
+      if (lastPart.startsWith('http://') || lastPart.startsWith('https://')) {
+        const company = parts[0];
+        const position = parts.slice(1, parts.length - 2).join(' | ');
+        const location = parts[parts.length - 2];
+        const link = lastPart;
+        parts = [company, position, location, link];
+      } else {
+        parts = parts.slice(0, 4);
+      }
+    }
+
+    // 4. 验证字段数量
+    if (parts.length < 4) {
+      errorLines.push(`第 ${lineNumber} 行: 字段不足 (需4个，实为${parts.length}) | 内容: ${line.substring(0, 30)}...`);
+      if (onProgress) onProgress(lineNumber, total, errorLines);
+      continue;
+    }
+
+    const [company, position, location, link] = parts;
+
+    // 5. 必填字段校验
+    if (!company) {
+      errorLines.push(`第 ${lineNumber} 行: 公司名称不能为空`);
+    } else if (!link) {
+      errorLines.push(`第 ${lineNumber} 行: 投递链接不能为空`);
+    } 
+    // 6. 链接格式验证
+    else if (!link.startsWith('http://') && !link.startsWith('https://')) {
+      errorLines.push(`第 ${lineNumber} 行: 链接格式错误 (需 http/https 开头)`);
+    } else {
+      // 7. 单行解析成功，加入结果集 (将 position 映射为 title)
+      allJobs.push({
+        company: company,
+        title: position || '通用岗位',
+        location: location || '全国',
+        link: link
+      });
+    }
+
+    // 更新进度
+    if (onProgress) onProgress(lineNumber, total, errorLines);
   }
+
   return allJobs;
 };
