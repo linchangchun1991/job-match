@@ -2,7 +2,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Strictly follow initialization rules: new GoogleGenAI({ apiKey: process.env.API_KEY })
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 function stripMarkdown(str: string): string {
   if (!str) return "";
