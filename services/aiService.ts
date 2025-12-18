@@ -2,18 +2,20 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-// 初始化 Gemini 客户端
-// 注意：API_KEY 将自动从全局注入的 process.env.API_KEY 获取
+/**
+ * 初始化 Gemini AI 客户端
+ * 使用系统预配置的 process.env.API_KEY
+ */
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * 简历智能解析：使用 Gemini 3.0 结构化输出模式
+ * 简历智能解析：采用 Gemini 3.0 Flash (原生支持浏览器调用，无 CORS 问题)
  */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `你是一位顶级求职猎头专家。请分析以下简历内容，并提取核心画像信息：\n\n${text.slice(0, 10000)}`,
+      contents: `你是一位顶级 HR 专家。请解析以下简历内容并生成标准画像：\n${text.slice(0, 8000)}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -26,11 +28,11 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
             university: { type: Type.STRING },
             major: { type: Type.STRING },
             graduationYear: { type: Type.STRING },
-            coreDomain: { type: Type.STRING, description: "核心行业/职能领域" },
-            seniorityLevel: { type: Type.STRING, description: "职级评估，如：应届、中级、资深" },
+            coreDomain: { type: Type.STRING, description: "如：互联网金融、半导体研发等" },
+            seniorityLevel: { type: Type.STRING, description: "如：初级、资深、专家" },
             coreTags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            atsScore: { type: Type.NUMBER, description: "综合竞争力得分 0-100" },
-            atsAnalysis: { type: Type.STRING, description: "专家诊断建议" },
+            atsScore: { type: Type.NUMBER },
+            atsAnalysis: { type: Type.STRING },
             atsDimensions: {
               type: Type.OBJECT,
               properties: {
@@ -48,8 +50,6 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     });
 
     const data = JSON.parse(response.text);
-    
-    // 补全业务逻辑所需的其他字段
     return {
       ...data,
       isFreshGrad: true,
@@ -61,20 +61,19 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       tags: { degree: [], exp: [], skill: [], intent: [] }
     } as ParsedResume;
   } catch (e: any) {
-    console.error("Gemini Parse Failed:", e);
-    throw new Error(`智能解析失败: ${e.message || '网络连接异常'}`);
+    console.error("AI Parsing Error:", e);
+    throw new Error(`简历智能解析失败: ${e.message || '网络连接超时'}`);
   }
 };
 
 /**
- * 岗位深度匹配
+ * 岗位匹配：利用 Gemini 的语义推理能力
  */
 export const matchJobs = async (
   resume: ParsedResume, 
   jobs: Job[],
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
-  // 筛选前 100 个岗位进行高质量匹配
   const validJobs = jobs.slice(0, 100);
   if (validJobs.length === 0) return [];
 
@@ -82,10 +81,9 @@ export const matchJobs = async (
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `
-        你是一位资深职业教练。请根据候选人画像，从岗位列表中选出最匹配的项。
-        
-        候选人画像：${JSON.stringify(resume)}
-        岗位列表：${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}
+        你是一位资深职业教练。请根据候选人画像和岗位列表进行匹配。
+        候选人：${JSON.stringify(resume)}
+        岗位列表：${JSON.stringify(validJobs.map((j, i) => ({ i, company: j.company, title: j.title })))}
       `,
       config: {
         responseMimeType: "application/json",
@@ -97,9 +95,9 @@ export const matchJobs = async (
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  i: { type: Type.NUMBER, description: "岗位在列表中的索引" },
+                  i: { type: Type.NUMBER, description: "岗位索引" },
                   score: { type: Type.NUMBER },
-                  recommendation: { type: Type.STRING, description: "一句话推荐金句" }
+                  recommendation: { type: Type.STRING, description: "推荐语" }
                 }
               }
             }
@@ -126,13 +124,13 @@ export const matchJobs = async (
     if (onProgress) onProgress(results);
     return results;
   } catch (e) {
-    console.error("Gemini Match Failed:", e);
+    console.error("Match Error:", e);
     return [];
   }
 };
 
 /**
- * 岗位数据本地极速解析引擎
+ * 岗位数据解析：本地高性能正则引擎
  */
 export const parseSmartJobs = async (
   rawText: string, 
