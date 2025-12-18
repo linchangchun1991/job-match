@@ -3,16 +3,22 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
 /**
- * 初始化 Gemini AI 客户端
- * 使用系统预配置的 process.env.API_KEY
+ * 获取 AI 客户端实例
  */
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAIClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key 未配置。请在系统环境变量或 Vercel Settings 中设置 API_KEY。");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 /**
- * 简历智能解析：采用 Gemini 3.0 Flash (原生支持浏览器调用，无 CORS 问题)
+ * 简历智能解析
  */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `你是一位顶级 HR 专家。请解析以下简历内容并生成标准画像：\n${text.slice(0, 8000)}`,
@@ -49,7 +55,10 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       }
     });
 
-    const data = JSON.parse(response.text);
+    const textOutput = response.text;
+    if (!textOutput) throw new Error("AI 返回内容为空");
+    
+    const data = JSON.parse(textOutput);
     return {
       ...data,
       isFreshGrad: true,
@@ -62,12 +71,12 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     } as ParsedResume;
   } catch (e: any) {
     console.error("AI Parsing Error:", e);
-    throw new Error(`简历智能解析失败: ${e.message || '网络连接超时'}`);
+    throw new Error(`简历解析失败: ${e.message || '未知错误'}`);
   }
 };
 
 /**
- * 岗位匹配：利用 Gemini 的语义推理能力
+ * 岗位匹配
  */
 export const matchJobs = async (
   resume: ParsedResume, 
@@ -78,6 +87,7 @@ export const matchJobs = async (
   if (validJobs.length === 0) return [];
 
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `
@@ -106,7 +116,10 @@ export const matchJobs = async (
       }
     });
 
-    const parsed = JSON.parse(response.text);
+    const textOutput = response.text;
+    if (!textOutput) return [];
+    
+    const parsed = JSON.parse(textOutput);
     const results = (parsed.matches || []).map((m: any) => {
       const job = validJobs[m.i];
       if (!job) return null;
@@ -130,7 +143,7 @@ export const matchJobs = async (
 };
 
 /**
- * 岗位数据解析：本地高性能正则引擎
+ * 岗位数据解析
  */
 export const parseSmartJobs = async (
   rawText: string, 
@@ -144,7 +157,7 @@ export const parseSmartJobs = async (
 
   for (let i = 0; i < total; i++) {
     let line = lines[i].trim();
-    if (!line || line.startsWith('=') || line.startsWith('#') || line.includes('公司') && line.includes('链接')) {
+    if (!line || line.startsWith('=') || line.startsWith('#') || (line.includes('公司') && line.includes('链接'))) {
       if (onProgress) onProgress(i + 1, total, errorLines);
       continue;
     }
