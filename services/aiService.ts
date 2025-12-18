@@ -1,13 +1,5 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
-
-/**
- * Initialize AI safely. 
- * Note: Guidelines require const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
- * We ensure process.env exists via index.html shim to prevent module-level crash.
- */
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 function stripMarkdown(str: string): string {
   if (!str) return "";
@@ -15,13 +7,13 @@ function stripMarkdown(str: string): string {
 }
 
 /**
- * 智能清洗岗位数据 - 使用 Gemini 3.0 Pro
+ * 智能清洗岗位数据 - 使用 Gemini 3.0 Flash
  */
 export const parseSmartJobs = async (
-  apiKey: string, 
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const systemInstruction = `你是一个专业的数据解析助手。任务是解析从“腾讯云智服知识库”导出的杂乱文本。
 **处理规则**：
 1. **剔除噪音**：忽略所有时间戳、忽略发言人姓名。
@@ -77,7 +69,8 @@ export const parseSmartJobs = async (
 /**
  * 简历解析 - 使用 Gemini 3.0 Pro 深度分析
  */
-export const parseResume = async (apiKey: string, text: string): Promise<ParsedResume> => {
+export const parseResume = async (text: string): Promise<ParsedResume> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const currentDate = new Date().toISOString().split('T')[0];
   const systemInstruction = `你是一个严谨的简历解析引擎。当前日期是 ${currentDate}。
 请按要求解析简历并返回 JSON。所有字段必须为字符串或数值，禁止嵌套对象。
@@ -119,7 +112,7 @@ export const parseResume = async (apiKey: string, text: string): Promise<ParsedR
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("Parse Resume Error:", e);
-    throw new Error("简历解析失败，请检查网络或API配置");
+    throw new Error("简历解析失败，请联系管理员检查 API 配置");
   }
 };
 
@@ -127,11 +120,11 @@ export const parseResume = async (apiKey: string, text: string): Promise<ParsedR
  * 岗位匹配 - 极速并发匹配
  */
 export const matchJobs = async (
-  apiKey: string, 
   resume: ParsedResume, 
   jobs: Job[],
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const validJobs = jobs.filter(j => j.company && j.title).slice(0, 100); 
   if (validJobs.length === 0) return [];
 

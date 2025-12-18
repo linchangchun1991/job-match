@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, FileText, Search, User, Briefcase, Award, Upload, Zap, BarChart3, Clock, LogOut } from './components/Icons';
 import SettingsModal from './components/SettingsModal';
@@ -19,7 +18,6 @@ const safeRender = (value: any): string => {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   if (typeof value === 'object') {
-    // 如果是对象，尝试提取关键字段或转为 JSON
     if (value.institution) return value.institution;
     if (value.name) return value.name;
     if (value.degree) return value.degree;
@@ -35,7 +33,7 @@ const safeRender = (value: any): string => {
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     userRole: null,
-    apiKey: '',
+    apiKey: '', // Managed by environment
     jobs: [],
     currentResume: '',
     parsedResume: null,
@@ -55,9 +53,7 @@ const App: React.FC = () => {
   }, []);
 
   const initData = async () => {
-    const key = storage.getApiKey();
     setCloudEnabled(isCloudEnabled());
-    
     const history = storage.getSessions();
     const results = storage.getHistory();
     
@@ -65,7 +61,6 @@ const App: React.FC = () => {
       const jobs = await jobService.fetchAll();
       setState(s => ({
         ...s,
-        apiKey: key,
         jobs: jobs,
         matchHistory: history,
         matchResults: results
@@ -104,10 +99,6 @@ const App: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    if (!state.apiKey) {
-      setState(s => ({ ...s, settingsOpen: true }));
-      return;
-    }
     if (!state.currentResume.trim()) {
       alert("请先上传简历或粘贴文本内容");
       return;
@@ -116,11 +107,10 @@ const App: React.FC = () => {
     setState(s => ({ ...s, isAnalyzing: true, matchResults: [] }));
     
     try {
-      const parsed = await parseResume(state.apiKey, state.currentResume);
+      const parsed = await parseResume(state.currentResume);
       setState(s => ({ ...s, parsedResume: parsed, isAnalyzing: false, isMatching: true }));
 
       const finalMatches = await matchJobs(
-        state.apiKey, 
         parsed, 
         state.jobs, 
         (newBatch) => {
@@ -307,9 +297,9 @@ const App: React.FC = () => {
                   className="w-full py-3 rounded-lg bg-white text-black font-bold text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                 >
                   {state.isAnalyzing ? (
-                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在深度解析...</span>
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div> 正在深度解析...</span>
                   ) : state.isMatching ? (
-                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在极速匹配中...</span>
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div> 正在极速匹配中...</span>
                   ) : (
                     '开始智能分析'
                   )}
@@ -403,8 +393,7 @@ const App: React.FC = () => {
       <SettingsModal 
         isOpen={state.settingsOpen} 
         onClose={() => setState(s => ({ ...s, settingsOpen: false }))}
-        onSave={(key) => {
-          setState(s => ({ ...s, apiKey: key }));
+        onSave={() => {
           setCloudEnabled(isCloudEnabled());
           refreshJobs();
         }}

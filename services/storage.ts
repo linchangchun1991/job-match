@@ -1,34 +1,18 @@
 import { Job, MatchResult, MatchSession } from '../types';
 
 const KEYS = {
-  API_KEY: 'careermatch_api_key',
   JOBS: 'careermatch_jobs',
-  // Deprecated legacy key
   HISTORY: 'careermatch_history',
   SESSIONS: 'careermatch_sessions',
-  // New cloud config keys
   SUPABASE_URL: 'careermatch_supabase_url',
   SUPABASE_KEY: 'careermatch_supabase_key'
 };
 
-// Hardcoded key as requested
-const PRESET_API_KEY = 'sk-668c28bae516493d9ea8a3662118ec98';
-// Hardcoded Supabase keys
+// Hardcoded Supabase keys fallback
 const PRESET_SUPABASE_URL = 'https://axxatrqqfhscokyutnla.supabase.co';
 const PRESET_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4eGF0cnFxZmhzY29reXV0bmxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2OTgwNzEsImV4cCI6MjA4MTI3NDA3MX0.5BBt8TsEEG1FLZ2r3iNhDQEj_yyrQN2bJ7KTNIZWaJk';
 
 export const storage = {
-  getApiKey: (): string => {
-    const stored = localStorage.getItem(KEYS.API_KEY);
-    // Return stored key or fallback to preset
-    if (!stored) {
-      localStorage.setItem(KEYS.API_KEY, PRESET_API_KEY);
-      return PRESET_API_KEY;
-    }
-    return stored;
-  },
-  setApiKey: (key: string) => localStorage.setItem(KEYS.API_KEY, key),
-  
   getJobs: (): Job[] => {
     try {
       return JSON.parse(localStorage.getItem(KEYS.JOBS) || '[]');
@@ -66,7 +50,6 @@ export const storage = {
     return [];
   },
 
-  // Cloud Config
   getSupabaseConfig: () => {
     let url = localStorage.getItem(KEYS.SUPABASE_URL);
     let key = localStorage.getItem(KEYS.SUPABASE_KEY);

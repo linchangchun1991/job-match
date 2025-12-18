@@ -1,10 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { Database, Trash2, Zap, Sparkles, Lightbulb, ExternalLink, Lock, AlertTriangle } from './Icons';
 import { Job } from '../types';
 import { jobService } from '../services/jobService';
 import { parseSmartJobs } from '../services/aiService';
-import { storage } from '../services/storage';
 
 interface JobManagerProps {
   jobs: Job[];
@@ -29,11 +27,6 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
         setErrorMsg("请输入或粘贴要解析的内容");
         return;
     }
-    const apiKey = storage.getApiKey();
-    if (!apiKey) {
-        setErrorMsg("请先在设置中配置 AI API Key");
-        return;
-    }
 
     setIsLoading(true);
     setStatus(shouldClear ? "正在重置云端数据..." : "正在分析内容...");
@@ -47,7 +40,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
         }
 
         setStatus("AI 正在解析您的新知识库数据...");
-        const aiJobs = await parseSmartJobs(apiKey, pasteContent, (current, total) => {
+        const aiJobs = await parseSmartJobs(pasteContent, (current, total) => {
             setProgress({ current, total });
             setStatus(`解析中: 第 ${current}/${total} 段...`);
         });

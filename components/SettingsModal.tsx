@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, Database, Trash2, Settings, Zap } from './Icons';
+import { XCircle, Database, Trash2, Settings } from './Icons';
 import { storage } from '../services/storage';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (key: string) => void;
+  onSave: () => void;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }) => {
-  const [apiKey, setApiKey] = useState('');
   const [sbUrl, setSbUrl] = useState('');
   const [sbKey, setSbKey] = useState('');
 
   useEffect(() => {
     if (isOpen) {
-      setApiKey(storage.getApiKey());
       const sb = storage.getSupabaseConfig();
       setSbUrl(sb.url);
       setSbKey(sb.key);
@@ -37,22 +35,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
         </div>
 
         <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
-          {/* AI Config */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              AI 模型配置 (通义千问)
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
-            />
-          </div>
-
           {/* Cloud Database Config */}
-          <div className="pt-4 border-t border-white/10">
+          <div>
             <div className="flex items-center gap-2 mb-3">
                <Database className="w-4 h-4 text-blue-400" />
                <h3 className="text-sm font-medium text-gray-300">云端数据库配置 (Supabase)</h3>
@@ -104,9 +88,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
           <div className="flex justify-end pt-4">
             <button
               onClick={() => {
-                storage.setApiKey(apiKey);
                 storage.setSupabaseConfig(sbUrl, sbKey);
-                onSave(apiKey);
+                onSave();
                 onClose();
               }}
               className="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
