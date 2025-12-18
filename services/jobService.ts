@@ -1,3 +1,4 @@
+
 import { getSupabase, isCloudEnabled } from './supabase';
 import { Job } from '../types';
 import { storage } from './storage';
@@ -9,161 +10,153 @@ interface UploadResult {
   message?: string;
 }
 
-// 提取并解析元数据
+interface ClearResult {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * 核心修复：彻底解决 [object Object] 问题
+ * 确保任何输入都能转化为人类可读的字符串
+ */
+const formatError = (error: any): string => {
+  if (!error) return '未知错误';
+  if (typeof error === 'string') return error;
+  
+  // 1. 尝试从 Supabase 标准错误结构中提取
+  const message = error.message || error.error_description || error.details;
+  const hint = error.hint ? ` (提示: ${error.hint})` : '';
+  const code = error.code ? ` [错误码: ${error.code}]` : '';
+
+  if (message) {
+    return `${typeof message === 'object' ? JSON.stringify(message) : message}${hint}${code}`;
+  }
+
+  // 2. 尝试从原生 Error 对象中提取
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  // 3. 最后的兜底：强制序列化
+  try {
+    const stringified = JSON.stringify(error);
+    if (stringified === '{}') return error.toString() || '无法解析的错误对象';
+    return stringified;
+  } catch (e) {
+    return '系统发生异常，且无法解析错误详情';
+  }
+};
+
 const extractMetadata = (item: any) => {
-    // 优先检查可能包含打包数据的字段
     const potentialCarriers = ['type', 'description', 'location', 'tags', 'comment', 'memo', 'requirement', 'link'];
-    
     for (const key of potentialCarriers) {
         const val = item[key];
         if (val && typeof val === 'string' && val.includes(META_SEPARATOR)) {
              const parts = val.split(META_SEPARATOR);
-             // 协议格式: Type ::: Req ::: Link ::: UpdateTime ::: Location
              return {
                  type: parts[0] || '',
                  requirement: parts[1] || '',
                  link: parts[2] || '',
                  updateTime: parts[3] || '',
-                 location: parts[4] || '' // 如果 location 也在包里，优先使用
+                 location: parts[4] || ''
              };
         }
     }
-    
-    // 如果没有发现打包数据，尝试从原始字段读取（向后兼容）
     return {
         type: item.type || '',
         requirement: item.requirement || '',
-        link: item.link || '',
+        link: item.link || '', 
         updateTime: item.update_time || item.created_at?.split('T')[0] || '',
-        location: item.location || ''
+        location: item.location || '' 
     };
 };
 
 export const jobService = {
-  // 获取所有岗位
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
-    let jobs: Job[] = [];
+    if (!supabase) return storage.getJobs();
     
-    if (!supabase) {
-      jobs = storage.getJobs();
-    } else {
-        const { data, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-        if (error || !data) {
-            console.error('获取岗位失败:', error);
-            jobs = [];
-        } else {
-            jobs = data.map((item: any) => {
-                const meta = extractMetadata(item);
-                
-                // 二次兼容旧的 LINK 打包格式
-                if (meta.requirement && meta.requirement.includes(':::LINK:::')) {
-                    const parts = meta.requirement.split(':::LINK:::');
-                    meta.requirement = parts[0];
-                    if (!meta.link) meta.link = parts[1];
-                }
-
-                return {
-                    id: item.id,
-                    company: item.company,
-                    location: meta.location, 
-                    type: meta.type,
-                    requirement: meta.requirement,
-                    title: item.title,
-                    updateTime: meta.updateTime,
-                    link: meta.link
-                };
-            });
-        }
-    }
-
-    return jobs.map(j => ({
-      ...j,
-      company: j.company?.trim(),
-      title: j.title?.trim(),
-      link: j.link ? j.link.trim() : undefined
-    }));
+    if (error) return [];
+    
+    return (data || []).map((item: any) => {
+        const meta = extractMetadata(item);
+        return {
+            id: String(item.id),
+            company: (item.company || '未知公司').trim(),
+            location: (meta.location || item.location || '全国').trim(), 
+            type: meta.type,
+            requirement: meta.requirement,
+            title: (item.title || '通用岗').trim(),
+            updateTime: meta.updateTime,
+            link: meta.link || item.link 
+        };
+    });
   },
 
-  // 批量上传岗位
   bulkInsert: async (jobs: Job[]): Promise<UploadResult> => {
     const supabase = getSupabase();
-
     if (!supabase) {
-      const current = storage.getJobs();
-      storage.setJobs([...current, ...jobs]);
+      storage.setJobs([...storage.getJobs(), ...jobs]);
       return { success: true };
     }
 
-    // 自动适应字段策略：依次尝试可能的字段作为数据容器
-    // 避免因数据库缺少 type, requirement, link 等字段导致上传失败
     const carriers = ['type', 'description', 'location', 'tags', 'comment'];
     let lastError = null;
 
     for (const carrier of carriers) {
-        const dbRows = jobs.map(j => {
-             // 构造全能数据包: Type ::: Req ::: Link ::: UpdateTime ::: Location
-            const packedData = `${j.type || ''}${META_SEPARATOR}${j.requirement || ''}${META_SEPARATOR}${j.link || ''}${META_SEPARATOR}${j.updateTime || ''}${META_SEPARATOR}${j.location || ''}`;
-            
-            return {
-                company: j.company,
-                title: j.title,
-                [carrier]: packedData // 动态使用字段
-            };
-        });
+        const dbRows = jobs.map(j => ({
+            company: j.company,
+            title: j.title,
+            [carrier]: `${j.type || ''}${META_SEPARATOR}${j.requirement || ''}${META_SEPARATOR}${j.link || ''}${META_SEPARATOR}${j.updateTime || ''}${META_SEPARATOR}${j.location || ''}`
+        }));
 
         const { error } = await supabase.from('jobs').insert(dbRows);
-        
-        if (!error) {
-            return { success: true };
-        }
-
+        if (!error) return { success: true };
         lastError = error;
-        // 如果错误是"找不到列"，则尝试下一个字段
-        if (error.message.includes('Could not find the') && error.message.includes('column')) {
-            console.warn(`Upload attempt with column '${carrier}' failed, retrying next candidate...`);
-            continue; 
-        }
-
-        // 如果是权限或其他错误，直接中断
+        if (error.message?.includes('column')) continue;
         break;
     }
-
-    // 处理最终错误
-    let msg = lastError?.message || 'Unknown error';
-    if (msg.includes('row-level security')) {
-        msg = '权限不足 (RLS)。请在 Supabase 后台关闭 jobs 表的 RLS 或添加 Insert 策略。';
-    } else if (msg.includes('value too long')) {
-        msg = '字段内容过长，请检查数据库字段类型 (建议 TEXT)。';
-    } else if (msg.includes('column')) {
-        msg = `数据库严重不兼容，找不到可用字段 (尝试了: ${carriers.join(', ')})。请检查表结构是否包含 company 和 title。`;
-    }
-
-    return { success: false, message: msg };
+    return { success: false, message: formatError(lastError) };
   },
 
-  // 清空岗位
-  clearAll: async (): Promise<boolean> => {
+  clearAll: async (): Promise<ClearResult> => {
     const supabase = getSupabase();
-
     if (!supabase) {
       storage.setJobs([]);
-      return true;
+      return { success: true, message: '本地数据库已重置' };
     }
 
-    const { error } = await supabase
-      .from('jobs')
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000');
+    try {
+      /**
+       * 修复核心：
+       * 之前使用 UUID 字符串导致 bigint 类型的 ID 报错。
+       * 改用 .gt('id', 0) 或 .neq('id', -1)，这两个条件对数字类型 ID 始终有效，
+       * 且能成功触发 Supabase 的全表删除逻辑。
+       */
+      const { error, count } = await supabase
+        .from('jobs')
+        .delete({ count: 'exact' })
+        .gt('id', -1); // 兼容 bigint 和 UUID，因为 ID 肯定大于 -1
 
-    if (error) {
-      console.error('清空失败:', error);
-      return false;
+      if (error) {
+        // 如果 gt 还是报错（极少数 UUID 情况），尝试使用不等于一个不可能的数字
+        const { error: retryError, count: retryCount } = await supabase
+          .from('jobs')
+          .delete({ count: 'exact' })
+          .neq('company', 'THIS_WILL_NEVER_MATCH_ANYTHING_12345');
+        
+        if (retryError) return { success: false, message: formatError(retryError) };
+        return { success: true, message: `已从云端移除 ${retryCount || 0} 条岗位` };
+      }
+      
+      return { success: true, message: `已从云端移除 ${count || 0} 条岗位` };
+    } catch (e: any) {
+      return { success: false, message: formatError(e) };
     }
-    return true;
   }
 };

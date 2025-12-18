@@ -1,235 +1,208 @@
+
 import React, { useState, useEffect } from 'react';
-import { Database, Upload, Trash2, CheckCircle, Download, Zap, Lock, XCircle } from './Icons';
+import { Database, Trash2, Zap, Sparkles, Lightbulb, ExternalLink, Lock, AlertTriangle } from './Icons';
 import { Job } from '../types';
 import { jobService } from '../services/jobService';
+import { parseSmartJobs } from '../services/aiService';
+import { storage } from '../services/storage';
 
 interface JobManagerProps {
   jobs: Job[];
   onUpdate: (jobs: Job[]) => void;
   onRefresh?: () => void;
-  readOnly?: boolean;     // 新增：是否只读（教练模式）
-  defaultOpen?: boolean;  // 新增：是否默认展开（BD模式）
+  readOnly?: boolean;
+  defaultOpen?: boolean;
 }
-
-const PRELOADED_DATA = `济南历下控股集团有限公司2025年秋季校园招聘	北京 上海 广州 深圳 杭州 南京 成都 武汉 天津 青岛 宁波 济南 合肥 福州 香港	秋招正式批, 实习, 校招	（1）2026届应届统招统分毕业生； （2）2026年出站博士后；		2025-12-14
-五粮液集团进出口有限公司2025年下半年公开招聘	北京 上海 广州	秋招正式批	2026届高校毕业生		2025-12-15
-南京大学2025年事业编制岗位公开招聘	上海 广州 南京	秋招正式批	国内高校应届毕业生以及与国内高校应届生同期毕业国（境）外留学人员可凭即将获得的最高学历学位报名		2025-12-16
-同济大学2025年一般管理岗统一公开招聘	北京 上海 广州 深圳 杭州 南京 成都 宁波 香港	秋招正式批, 实习	硕士研究生及以上学位		2025-12-17
-海致2026届秋季校园招聘	内资	广州 深圳	秋招正式批			2025-12-10		https://haizhijt.cn/joins
-2026年渠成集团管培生培养项目	内资	宁波	秋招正式批			2025-12-10		https://www.lumilegend.cn/jiaruwomen/chubeirencai/index.html`;
 
 const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, readOnly = false, defaultOpen = false }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [pasteContent, setPasteContent] = useState('');
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
-  // 监听 defaultOpen 变化，主要用于角色切换时
-  useEffect(() => {
-    setIsOpen(defaultOpen);
-  }, [defaultOpen]);
+  useEffect(() => { setIsOpen(defaultOpen); }, [defaultOpen]);
 
-  const parseRawData = (content: string) => {
-    const rows = content.trim().split('\n');
-    const newJobs: Job[] = [];
-    let successCount = 0;
-
-    rows.forEach((row, index) => {
-      // 关键修复：先trim整行，防止空行干扰
-      if (!row.trim()) return;
-      
-      // 关键修复：分割后对每个字段trim()，去除末尾的 \r 和多余空格
-      let cols = row.split('\t').map(c => c.trim());
-      
-      if (cols.length >= 1) {
-        const findLink = (columns: string[]) => {
-          // 增强识别：支持 http, https 和 www 开头
-          const match = columns.find(c => 
-            c.startsWith('http://') || 
-            c.startsWith('https://') || 
-            c.startsWith('www.')
-          );
-          
-          if (!match) return undefined;
-          
-          // 自动补全协议
-          return match.startsWith('www.') ? `https://${match}` : match;
-        };
-        
-        const link = findLink(cols);
-
-        newJobs.push({
-          id: `job-${Date.now()}-${index}`, 
-          company: cols[0] || '未命名公司',
-          location: cols[1] || '全国', 
-          type: cols[2] || '全职',
-          requirement: cols[3] || '不限',
-          title: cols[4] || '通用岗', 
-          updateTime: cols[5] || new Date().toISOString().split('T')[0],
-          link: link
-        });
-        successCount++;
-      }
-    });
-    return { newJobs, successCount };
-  };
-
-  const handleParseAndUpload = async () => {
-    if (!pasteContent.trim()) return;
-    setIsLoading(true);
-    setFeedback(null);
-    setErrorMsg(null);
-    
-    const { newJobs, successCount } = parseRawData(pasteContent);
-
-    if (successCount > 0) {
-      const result = await jobService.bulkInsert(newJobs);
-      
-      if (result.success) {
-        setFeedback(`成功上传 ${successCount} 个岗位到云端`);
-        setPasteContent('');
-        const allJobs = await jobService.fetchAll();
-        onUpdate(allJobs);
-        setTimeout(() => setFeedback(null), 3000);
-      } else {
-        setErrorMsg(`上传失败: ${result.message}`);
-      }
-    } else {
-      setErrorMsg('未发现有效数据，请检查格式');
+  const processUpload = async (shouldClear: boolean) => {
+    if (!pasteContent.trim()) {
+        setErrorMsg("请输入或粘贴要解析的内容");
+        return;
     }
-    setIsLoading(false);
-  };
+    const apiKey = storage.getApiKey();
+    if (!apiKey) {
+        setErrorMsg("请先在设置中配置 AI API Key");
+        return;
+    }
 
-  const handleLoadDemo = async () => {
     setIsLoading(true);
-    const { newJobs, successCount } = parseRawData(PRELOADED_DATA);
-    await jobService.bulkInsert(newJobs);
-    const allJobs = await jobService.fetchAll();
-    onUpdate(allJobs);
-    setFeedback(`已加载 ${successCount} 个演示岗位`);
-    setTimeout(() => setFeedback(null), 3000);
-    setIsLoading(false);
+    setStatus(shouldClear ? "正在重置云端数据..." : "正在分析内容...");
+    setErrorMsg(null);
+
+    try {
+        if (shouldClear) {
+            const clearRes = await jobService.clearAll();
+            if (!clearRes.success) throw new Error(clearRes.message);
+            onUpdate([]); 
+        }
+
+        setStatus("AI 正在解析您的新知识库数据...");
+        const aiJobs = await parseSmartJobs(apiKey, pasteContent, (current, total) => {
+            setProgress({ current, total });
+            setStatus(`解析中: 第 ${current}/${total} 段...`);
+        });
+        
+        const formattedJobs: Job[] = aiJobs.map((j: any, index: number) => ({
+            id: `job-adp-${Date.now()}-${index}`,
+            company: j.company || '未知公司',
+            title: j.title || '通用岗位',
+            location: j.location || '全国',
+            type: '',
+            requirement: '',
+            link: j.link || '',
+            updateTime: new Date().toISOString().split('T')[0]
+        }));
+
+        setStatus(`正在同步 ${formattedJobs.length} 条岗位...`);
+        const result = await jobService.bulkInsert(formattedJobs);
+        if (result.success) {
+            setStatus(null);
+            alert(`✅ 成功！已同步 ${formattedJobs.length} 条数据至新数据库。`);
+            setPasteContent('');
+            const allJobs = await jobService.fetchAll();
+            onUpdate(allJobs);
+        } else {
+            setErrorMsg(`同步失败: ${result.message}`);
+        }
+    } catch (e: any) {
+        setErrorMsg(`操作异常: ${e.message}`);
+    } finally {
+        setIsLoading(false);
+        setStatus(null);
+    }
   };
 
-  const handleRefresh = async () => {
-    setIsLoading(true);
-    const allJobs = await jobService.fetchAll();
-    onUpdate(allJobs);
-    setIsLoading(false);
-  };
-
-  const handleClear = async () => {
-    if(confirm('警告：这将清空云端数据库中所有岗位！确定吗？')) {
+  const handleClearOnly = async () => {
+    if(confirm('🚨 确定要彻底清空云端岗位库吗？')) {
       setIsLoading(true);
-      await jobService.clearAll();
-      onUpdate([]);
+      setErrorMsg(null);
+      const result = await jobService.clearAll();
+      if (result.success) {
+          onUpdate([]);
+          alert('云端数据已清空');
+      } else {
+          setErrorMsg(`清空操作失败: ${result.message}`);
+      }
       setIsLoading(false);
     }
   };
 
   return (
     <div className={`w-full mt-8 border-t border-gray-800 pt-6 ${readOnly ? 'opacity-75' : ''}`}>
-      <div 
-        className="flex items-center justify-between cursor-pointer group"
-        onClick={() => setIsOpen(!isOpen)}
-      >
+      <div className="flex items-center justify-between cursor-pointer group" onClick={() => setIsOpen(!isOpen)}>
         <div className="flex items-center gap-3">
           <div className="p-2 bg-gray-900 rounded text-gray-500 group-hover:text-white transition-colors">
             <Database className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider group-hover:text-white transition-colors flex items-center gap-2">
-              岗位数据库 CLOUD DB
-              {isLoading && <span className="text-[10px] text-blue-500 animate-pulse">同步中...</span>}
+            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
+              岗位数据库管理
+              {isLoading && <span className="text-[10px] text-blue-500 animate-pulse">处理中...</span>}
               {readOnly && <Lock className="w-3 h-3 text-gray-600" />}
             </h3>
-            <p className="text-[10px] text-gray-600 font-mono">
-              云端实时库存: {jobs.length}
-            </p>
+            <p className="text-[10px] text-gray-600 font-mono">云端岗位总计: {jobs.length} 条</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
-             onClick={(e) => { e.stopPropagation(); handleRefresh(); }}
-             className="p-1 text-gray-500 hover:text-blue-500 transition-colors"
-             title="刷新数据"
-          >
-            <Zap className="w-4 h-4" />
-          </button>
-          <button className="px-3 py-1 text-xs text-gray-500 hover:text-white transition-colors font-medium">
-            {isOpen ? '收起' : '管理数据'}
-          </button>
-        </div>
+        <button className="px-3 py-1 text-xs text-gray-500 hover:text-white transition-colors font-medium">
+          {isOpen ? '收起控制台' : '打开管理面板'}
+        </button>
       </div>
 
       {isOpen && (
         <div className="mt-6 bg-[#111116] border border-[#27272a] rounded-xl p-6 animate-in slide-in-from-top-2 duration-200">
-          {readOnly ? (
-            <div className="text-center py-8 text-gray-500">
-              <Lock className="w-8 h-8 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">您是职业教练身份，仅拥有岗位库查看权限。</p>
-              <p className="text-xs mt-1 text-gray-600">请联系 BD 部门更新岗位数据。</p>
-            </div>
-          ) : (
+          {!readOnly ? (
             <>
-              <div className="mb-4">
-                <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">
-                  粘贴 Excel/CSV 数据 (支持Tab分隔) - 将自动同步至云端
-                </label>
-                <textarea
-                  className="w-full h-32 bg-black border border-[#333] rounded p-4 text-xs font-mono text-gray-300 focus:border-blue-600 focus:outline-none resize-none custom-scrollbar"
-                  placeholder={`公司名称\t工作地点\t招聘类型\t招聘要求\t岗位名称\t更新时间\t投递链接(可选)`}
-                  value={pasteContent}
-                  onChange={(e) => setPasteContent(e.target.value)}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-blue-900/10 border border-blue-900/20 rounded-lg p-4">
+                   <div className="flex items-center gap-2 text-blue-400 mb-2">
+                      <Lightbulb className="w-4 h-4" />
+                      <span className="text-xs font-bold">新知识库导入指引</span>
+                   </div>
+                   <p className="text-[10px] text-gray-400 leading-relaxed">
+                     由于权限限制，请前往 <a href="https://adp.cloud.tencent.com/adp/#/app/knowledge/qa/source?spaceId=default_space&appid=2001565884896426560&appType=knowledge_qa" target="_blank" className="text-blue-500 underline inline-flex items-center gap-1">腾讯云 ADP 后台<ExternalLink className="w-2 h-2"/></a><br/>
+                     全选并复制里面的岗位表格内容，然后粘贴到下方文本框。
+                   </p>
+                </div>
+                <div className="bg-orange-900/10 border border-orange-900/20 rounded-lg p-4">
+                   <div className="flex items-center gap-2 text-orange-400 mb-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-xs font-bold">注意事项</span>
+                   </div>
+                   <p className="text-[10px] text-gray-400 leading-relaxed">
+                     点击“一键替换”会先清空旧数据库再导入新数据。由于旧应用已欠费，请确保在“设置”中已更新至最新的 Supabase 配置。
+                   </p>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
-                  <button 
-                    onClick={handleParseAndUpload}
-                    disabled={isLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-gray-200 rounded text-xs font-bold transition-colors disabled:opacity-50"
-                  >
-                    <Upload className="w-3 h-3" /> 
-                    {isLoading ? '同步中...' : '上传至云端'}
-                  </button>
-                  <button 
-                     onClick={handleLoadDemo}
-                     disabled={isLoading}
-                     className="flex items-center gap-2 px-4 py-2 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 rounded text-xs font-bold transition-colors"
-                  >
-                    <Download className="w-3 h-3" /> 加载演示
-                  </button>
-                  <button 
-                    onClick={handleClear}
-                    disabled={isLoading}
-                    className="flex items-center gap-2 px-4 py-2 text-red-500 hover:text-red-400 hover:bg-red-900/10 rounded text-xs font-bold transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" /> 清空云端
-                  </button>
-                </div>
-                
-                <div className="flex flex-col items-end">
-                  {feedback && (
-                    <span className="flex items-center gap-2 text-green-500 text-xs font-bold animate-pulse mb-1">
-                      <CheckCircle className="w-3 h-3" /> {feedback}
-                    </span>
-                  )}
-                  {errorMsg && (
-                    <div className="bg-red-900/10 border border-red-900/20 px-3 py-2 rounded max-w-lg">
-                      <div className="flex items-start gap-2">
-                         <XCircle className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
-                         <span className="text-red-300 text-[10px] font-mono whitespace-pre-wrap break-all leading-tight">
-                           {errorMsg}
-                         </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <textarea
+                className="w-full h-48 bg-black border border-[#333] rounded p-4 text-xs font-mono text-gray-300 focus:border-blue-600 focus:outline-none resize-none custom-scrollbar mb-4"
+                placeholder="请在此粘贴从腾讯云 ADP 知识库复制的文本内容..."
+                value={pasteContent}
+                onChange={(e) => setPasteContent(e.target.value)}
+              />
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button 
+                  onClick={() => processUpload(true)}
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-orange-900/20 disabled:opacity-30"
+                >
+                  <Zap className="w-3 h-3" /> 一键清空并替换为新知识库
+                </button>
+
+                <button 
+                  onClick={() => processUpload(false)}
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-30"
+                >
+                  <Sparkles className="w-3 h-3" /> 增量追加新岗位
+                </button>
+
+                <button 
+                  onClick={handleClearOnly}
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white rounded-lg text-xs font-bold transition-all"
+                >
+                  <Trash2 className="w-3 h-3" /> 仅清空当前库
+                </button>
               </div>
+
+              {(status || errorMsg) && (
+                <div className="mt-4 p-4 bg-black/40 border border-gray-800 rounded-lg flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {isLoading && <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>}
+                      <span className={`text-[11px] font-bold ${errorMsg ? 'text-red-400' : 'text-blue-400'}`}>
+                        {errorMsg ? '❌ 发生错误' : '📡 执行状态'}
+                      </span>
+                    </div>
+                    {progress.total > 0 && (
+                      <div className="text-[10px] text-gray-500 font-mono">
+                        PROGRESS: {Math.round((progress.current / progress.total) * 100)}%
+                      </div>
+                    )}
+                  </div>
+                  <div className={`text-[11px] ${errorMsg ? 'text-red-300' : 'text-gray-400'} whitespace-pre-wrap font-mono break-all`}>
+                    {errorMsg || status}
+                  </div>
+                </div>
+              )}
             </>
+          ) : (
+            <div className="text-center py-10 text-gray-600">
+               <Lock className="w-10 h-10 mx-auto mb-4 opacity-20" />
+               <p className="text-sm italic">教练模式已启动：岗位数据受保护，不可修改。</p>
+            </div>
           )}
         </div>
       )}

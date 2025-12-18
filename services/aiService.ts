@@ -1,166 +1,172 @@
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-const API_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
-const MODEL = 'qwen-plus';
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-interface QwenMessage {
-  role: 'system' | 'user';
-  content: string;
+function stripMarkdown(str: string): string {
+  if (!str) return "";
+  return str.replace(/```json/g, '').replace(/```/g, '').trim();
 }
 
-async function callQwen(apiKey: string, messages: QwenMessage[]) {
-  if (!apiKey) throw new Error("请在设置中配置API Key");
+/**
+ * 智能清洗岗位数据 - 使用 Gemini 3.0 Pro
+ */
+export const parseSmartJobs = async (
+  apiKey: string, 
+  rawText: string, 
+  onProgress?: (current: number, total: number) => void
+): Promise<any[]> => {
+  const systemInstruction = `你是一个专业的数据解析助手。任务是解析从“腾讯云智服知识库”导出的杂乱文本。
+**处理规则**：
+1. **剔除噪音**：忽略所有时间戳、忽略发言人姓名。
+2. **提取四要素**：
+   - **company**: 公司名称（去除“急招”、“置顶”等修饰语）。
+   - **title**: 岗位名。
+   - **location**: 地点（若未提及则填“全国”）。
+   - **link**: 投递链接。必须是完整链接。
+3. **输出格式**：返回纯 JSON 数组。`;
 
-  let retries = 2;
-  while (retries >= 0) {
+  const chunkSize = 4000;
+  const textChunks = [];
+  for (let i = 0; i < rawText.length; i += chunkSize) {
+    textChunks.push(rawText.slice(i, i + chunkSize));
+  }
+
+  let allJobs: any[] = [];
+
+  for (let i = 0; i < textChunks.length; i++) {
+    if (onProgress) onProgress(i + 1, textChunks.length);
+    
     try {
-      const response = await fetch(API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: messages,
-          temperature: 0.1,
-          response_format: { type: "json_object" }
-        })
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `请提取以下知识库片段中的岗位信息：\n${textChunks[i]}`,
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json"
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+      const resultStr = response.text;
+      if (!resultStr) continue;
+      
+      const chunkJobs = JSON.parse(stripMarkdown(resultStr));
+      if (Array.isArray(chunkJobs)) {
+        allJobs = [...allJobs, ...chunkJobs];
       }
-
-      const data = await response.json();
-      return data.choices[0].message.content;
     } catch (e) {
-      if (retries === 0) throw e;
-      retries--;
-      await new Promise(r => setTimeout(r, 1000));
+      console.warn(`Chunk ${i} failed:`, e);
     }
   }
-}
 
+  const uniqueMap = new Map();
+  allJobs.forEach(j => {
+      const key = `${j.company}-${j.title}`;
+      uniqueMap.set(key, j);
+  });
+
+  return Array.from(uniqueMap.values());
+};
+
+/**
+ * 简历解析 - 使用 Gemini 3.0 Pro 深度分析
+ */
 export const parseResume = async (apiKey: string, text: string): Promise<ParsedResume> => {
-  const systemPrompt = `你是由HighMark开发的资深校招ATS系统。请对简历进行深度结构化解析。
-  
-  请返回严格的JSON格式：
-  {
-    "name": "姓名",
-    "education": "最高学历",
-    "university": "毕业院校",
-    "major": "专业",
-    "graduationYear": "毕业年份(如2026)",
-    "graduationType": "届别(如2026届)",
-    "expectedCities": ["城市1"],
-    "skills": ["技能1"],
-    "experience": "经历摘要",
-    "jobPreference": "求职意向",
-    "atsScore": 总分(0-100),
-    "atsDimensions": {
-      "education": 0-100, 
-      "experience": 0-100, 
-      "relevance": 0-100, 
-      "stability": 0-100, 
-      "leadership": 0-100, 
-      "skills": 0-100, 
-      "language": 0-100, 
-      "certificate": 0-100, 
-      "format": 0-100 
-    },
-    "atsAnalysis": "请严格按照以下格式返回字符串(包含换行符)：\\n✅ 核心优势：简练评价优点...\\n⚠️ 潜在短板：客观指出不足...\\n💡 提升建议：一句话改进建议..."
-  }`;
-
-  const truncatedText = text.length > 8000 ? text.slice(0, 8000) + "...(截断)" : text;
-
-  const result = await callQwen(apiKey, [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: `简历内容：\n${truncatedText}` }
-  ]);
+  const currentDate = new Date().toISOString().split('T')[0];
+  const systemInstruction = `你是一个严谨的简历解析引擎。当前日期是 ${currentDate}。
+请按要求解析简历并返回 JSON。所有字段必须为字符串或数值，禁止嵌套对象。
+输出 JSON 结构：
+{
+  "name": "姓名",
+  "phone": "电话",
+  "email": "邮箱",
+  "education": "最高学历描述",
+  "university": "毕业院校",
+  "major": "专业",
+  "graduationYear": "毕业年份",
+  "graduationDate": "毕业年月 YYYY.MM",
+  "graduationType": "应届生/往届生",
+  "isFreshGrad": true/false,
+  "workYears": 0,
+  "expectedCities": ["城市"],
+  "skills": ["技能"],
+  "experience": "经历总结",
+  "jobPreference": "意向岗位",
+  "tags": { "degree": [], "exp": [], "skill": [], "intent": [] },
+  "atsScore": 85,
+  "atsDimensions": { "education": 80, "skills": 85, "project": 90, "internship": 80, "quality": 90 },
+  "atsAnalysis": "AI诊断建议"
+}`;
 
   try {
-    return JSON.parse(result as string);
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `简历内容：\n${text.slice(0, 10000)}`,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 4000 }
+      }
+    });
+
+    const cleaned = stripMarkdown(response.text);
+    return JSON.parse(cleaned);
   } catch (e) {
-    console.error("Resume parsing failed", e);
-    throw new Error("简历解析失败，请检查文件内容是否可读。");
+    console.error("Parse Resume Error:", e);
+    throw new Error("简历解析失败，请检查网络或API配置");
   }
 };
 
-export const matchJobs = async (apiKey: string, resume: ParsedResume, jobs: Job[]): Promise<MatchResult[]> => {
-  // Increased batch size and concurrency for speed
-  const BATCH_SIZE = 30; 
-  
-  const chunks: Job[][] = [];
-  for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
-    chunks.push(jobs.slice(i, i + BATCH_SIZE));
-  }
+/**
+ * 岗位匹配 - 极速并发匹配
+ */
+export const matchJobs = async (
+  apiKey: string, 
+  resume: ParsedResume, 
+  jobs: Job[],
+  onProgress?: (newMatches: MatchResult[]) => void
+): Promise<MatchResult[]> => {
+  const validJobs = jobs.filter(j => j.company && j.title).slice(0, 100); 
+  if (validJobs.length === 0) return [];
 
-  const systemPrompt = `你是HighMark人岗匹配引擎。请根据简历与岗位列表进行评分。
+  const systemInstruction = `你是一位首席人才架构师。请根据简历匹配岗位，给出分数(0-100)和理由。
+返回 JSON 格式: { "matches": [{ "i": 岗位索引, "s": 分数, "reasons": ["理由"], "risks": ["风险"], "advice": "建议" }] }`;
 
-  【核心匹配逻辑】:
-  1. **校招/实习身份隔离**: 已毕业(2024及以前)严禁匹配实习岗位(0分)；在校生(2026/2027)优先匹配实习/校招。
-  2. **届别严格匹配**: 岗位要求的届别必须与候选人一致。
-  3. **专业与技能**: 专业对口度权重高。
+  const userPrompt = `候选人: ${resume.name} | 意向: ${resume.jobPreference} \n 岗位池: ${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}`;
 
-  请返回JSON对象，包含 key "matches" (数组):
-  [{
-    "id": "岗位ID",
-    "s": 0-100 (分数),
-    "r": ["理由1", "理由2"],
-    "k": ["风险点"],
-    "t": "建议"
-  }]`;
-
-  // Increased concurrency limit to 8 for faster processing
-  const CONCURRENCY_LIMIT = 8;
-  let allResults: MatchResult[] = [];
-  
-  for (let i = 0; i < chunks.length; i += CONCURRENCY_LIMIT) {
-    const activeChunks = chunks.slice(i, i + CONCURRENCY_LIMIT);
-    
-    const chunkPromises = activeChunks.map(async (batch) => {
-      const simplifiedJobs = batch.map(j => ({
-        id: j.id,
-        c: j.company,
-        l: j.location,
-        type: j.type,
-        req: j.requirement,
-        t: j.title
-      }));
-
-      const userPrompt = `
-      候选人: ${resume.graduationType} ${resume.education} ${resume.major}
-      岗位表: ${JSON.stringify(simplifiedJobs)}
-      `;
-
-      try {
-        const resultStr = await callQwen(apiKey, [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ]);
-        
-        const parsed = JSON.parse(resultStr as string);
-        return parsed.matches.map((m: any) => ({
-          jobId: m.id,
-          score: m.s,
-          matchReasons: m.r || [],
-          mismatchReasons: m.k || [],
-          recommendation: m.s >= 85 ? '极力推荐' : m.s >= 70 ? '推荐' : '一般',
-          tips: m.t,
-          job: batch.find(j => j.id === m.id)
-        })).filter((m: any) => m.job);
-      } catch (e) {
-        console.error("Batch match failed", e);
-        return [];
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json"
       }
     });
 
-    const results = await Promise.all(chunkPromises);
-    results.forEach(res => {
-      allResults = [...allResults, ...res];
-    });
-  }
+    const cleaned = stripMarkdown(response.text);
+    const parsed = JSON.parse(cleaned);
+    const list = parsed.matches || parsed;
 
-  return allResults.sort((a, b) => b.score - a.score);
+    const results = list.map((m: any) => {
+      const job = validJobs[m.i];
+      if (!job) return null;
+      return {
+        jobId: job.id,
+        score: m.s,
+        matchReasons: m.reasons || [],
+        mismatchReasons: m.risks || [],
+        recommendation: m.s >= 80 ? '高度推荐' : '可考虑',
+        tips: m.advice || '',
+        job: job
+      };
+    }).filter(Boolean);
+
+    if (onProgress) onProgress(results);
+    return results;
+  } catch (e) {
+    console.error("Match Jobs Error:", e);
+    return [];
+  }
 };

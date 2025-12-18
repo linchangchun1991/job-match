@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, FileText, Search, User, Briefcase, Award, Upload, Zap, BarChart3, Clock, LogOut } from './components/Icons';
 import SettingsModal from './components/SettingsModal';
@@ -11,6 +12,25 @@ import { parseFile } from './services/fileParser';
 import { jobService } from './services/jobService';
 import { AppState, Job, ParsedResume, UserRole, MatchSession } from './types';
 import { isCloudEnabled } from './services/supabase';
+
+// 核心修复：防止 React Error #31 的安全渲染函数
+const safeRender = (value: any): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    // 如果是对象，尝试提取关键字段或转为 JSON
+    if (value.institution) return value.institution;
+    if (value.name) return value.name;
+    if (value.degree) return value.degree;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Complex Data]';
+    }
+  }
+  return String(value);
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -93,29 +113,50 @@ const App: React.FC = () => {
       return;
     }
 
-    setState(s => ({ ...s, isAnalyzing: true }));
+    setState(s => ({ ...s, isAnalyzing: true, matchResults: [] }));
     
     try {
       const parsed = await parseResume(state.apiKey, state.currentResume);
       setState(s => ({ ...s, parsedResume: parsed, isAnalyzing: false, isMatching: true }));
 
-      const matches = await matchJobs(state.apiKey, parsed, state.jobs);
+      const finalMatches = await matchJobs(
+        state.apiKey, 
+        parsed, 
+        state.jobs, 
+        (newBatch) => {
+          setState(current => {
+            const all = [...current.matchResults, ...newBatch];
+            const uniqueMap = new Map();
+            all.forEach(r => {
+                const key = `${r.job.company.trim()}-${r.job.title.trim()}`;
+                if (!uniqueMap.has(key) || uniqueMap.get(key).score < r.score) {
+                    uniqueMap.set(key, r);
+                }
+            });
+            const sorted = Array.from(uniqueMap.values())
+              .sort((a: any, b: any) => b.score - a.score)
+              .slice(0, 50);
+
+            return { ...current, matchResults: sorted };
+          });
+        }
+      );
       
       const newSession: MatchSession = {
         id: Date.now().toString(),
         timestamp: Date.now(),
-        candidateName: parsed.name || '未命名候选人',
+        candidateName: safeRender(parsed.name) || '未命名候选人',
         resumeText: state.currentResume,
         parsedResume: parsed,
-        results: matches
+        results: finalMatches
       };
       
       const updatedHistory = storage.saveSession(newSession);
-      storage.saveHistory(matches); 
+      storage.saveHistory(finalMatches); 
       
       setState(s => ({ 
         ...s, 
-        matchResults: matches, 
+        matchResults: finalMatches, 
         matchHistory: updatedHistory,
         isMatching: false 
       }));
@@ -141,15 +182,15 @@ const App: React.FC = () => {
     return <Login onLogin={handleLogin} />;
   }
 
-  const ScoreBar = ({ label, score }: { label: string, score: number }) => (
+  const ScoreBar = ({ label, score, colorClass = "bg-blue-600" }: { label: string, score: number, colorClass?: string }) => (
     <div className="mb-3">
       <div className="flex justify-between text-xs text-gray-400 mb-1">
         <span>{label}</span>
-        <span className="font-mono">{score}</span>
+        <span className={`font-mono font-bold ${score >= 80 ? 'text-green-400' : 'text-gray-300'}`}>{score}</span>
       </div>
       <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
         <div 
-          className="h-full bg-blue-600 rounded-full transition-all duration-1000" 
+          className={`h-full rounded-full transition-all duration-1000 ${colorClass}`} 
           style={{ width: `${score}%` }}
         />
       </div>
@@ -161,11 +202,9 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-black text-white pb-20 font-sans">
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-black/90 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* Logo */}
             <div className="h-8">
                <img src="logo.png" alt="HIGHMARK" className="h-full object-contain filter brightness-110" onError={(e) => {
                  (e.target as HTMLImageElement).style.display = 'none';
@@ -177,7 +216,7 @@ const App: React.FC = () => {
             </div>
             <div className="h-4 w-[1px] bg-gray-700"></div>
             <span className="text-xs text-gray-400 tracking-widest uppercase">
-              智能选岗系统 <span className="text-[10px] opacity-50">PRO</span>
+              智能选岗系统 <span className="text-[10px] opacity-50">PRO (GEMINI 3.0)</span>
             </span>
           </div>
           
@@ -225,11 +264,8 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        
-        {/* Coach View: Resume & Match */}
         {isCoach && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
-            {/* Left Column: Input */}
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -267,24 +303,23 @@ const App: React.FC = () => {
 
                 <button
                   onClick={handleStartAnalysis}
-                  disabled={state.isAnalyzing || state.isMatching}
+                  disabled={state.isAnalyzing || (state.isMatching && state.matchResults.length === 0)}
                   className="w-full py-3 rounded-lg bg-white text-black font-bold text-sm hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                 >
                   {state.isAnalyzing ? (
                     <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在深度解析...</span>
                   ) : state.isMatching ? (
-                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在极速匹配...</span>
+                    <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div> 正在极速匹配中...</span>
                   ) : (
                     '开始智能分析'
                   )}
                 </button>
               </div>
 
-              {/* Analysis Result */}
               {state.parsedResume && (
                 <div className="bg-[#111116] border border-[#27272a] rounded-xl p-6 animate-in slide-in-from-bottom-4 duration-500">
                   <div className="flex items-center justify-between mb-6">
-                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">候选人画像 CANDIDATE PROFILE</h3>
+                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">岗位胜任力模型 COMPETENCY MODEL</h3>
                   </div>
                   
                   <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-800">
@@ -292,23 +327,40 @@ const App: React.FC = () => {
                         <User className="w-5 h-5" />
                      </div>
                      <div>
-                        <div className="text-white font-bold text-base">{state.parsedResume.name || '未命名候选人'}</div>
+                        <div className="text-white font-bold text-base">{safeRender(state.parsedResume.name) || '未命名候选人'}</div>
                         <div className="text-xs text-gray-400 mt-0.5 font-mono">
-                          {state.parsedResume.graduationType} | {state.parsedResume.education} | {state.parsedResume.major}
+                          {safeRender(state.parsedResume.graduationType)} | {safeRender(state.parsedResume.education)} | {safeRender(state.parsedResume.major)}
                         </div>
                      </div>
                   </div>
 
                   {state.parsedResume.atsDimensions && (
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 mb-6">
-                      <ScoreBar label="教育背景" score={state.parsedResume.atsDimensions.education} />
-                      <ScoreBar label="实习经历" score={state.parsedResume.atsDimensions.experience} />
-                      <ScoreBar label="岗位匹配" score={state.parsedResume.atsDimensions.relevance} />
-                      <ScoreBar label="稳定性" score={state.parsedResume.atsDimensions.stability} />
-                      <ScoreBar label="专业技能" score={state.parsedResume.atsDimensions.skills} />
-                      <ScoreBar label="领导力" score={state.parsedResume.atsDimensions.leadership} />
-                      <ScoreBar label="语言能力" score={state.parsedResume.atsDimensions.language} />
-                      <ScoreBar label="证书资质" score={state.parsedResume.atsDimensions.certificate} />
+                    <div className="grid grid-cols-1 gap-y-1 mb-6">
+                      <ScoreBar 
+                        label="教育背景 (20%)" 
+                        score={state.parsedResume.atsDimensions.education} 
+                        colorClass="bg-purple-500"
+                      />
+                      <ScoreBar 
+                        label="专业技能 (25%)" 
+                        score={state.parsedResume.atsDimensions.skills} 
+                        colorClass="bg-blue-500"
+                      />
+                      <ScoreBar 
+                        label="项目经验 (25%)" 
+                        score={state.parsedResume.atsDimensions.project} 
+                        colorClass="bg-indigo-500"
+                      />
+                      <ScoreBar 
+                        label="实习经历 (20%)" 
+                        score={state.parsedResume.atsDimensions.internship} 
+                        colorClass="bg-cyan-500"
+                      />
+                      <ScoreBar 
+                        label="综合素质 (10%)" 
+                        score={state.parsedResume.atsDimensions.quality} 
+                        colorClass="bg-emerald-500"
+                      />
                     </div>
                   )}
                   
@@ -318,7 +370,7 @@ const App: React.FC = () => {
                         <BarChart3 className="w-3 h-3" /> AI 智能诊断
                       </div>
                       <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap font-sans">
-                        {state.parsedResume.atsAnalysis}
+                        {safeRender(state.parsedResume.atsAnalysis)}
                       </div>
                     </div>
                   )}
@@ -326,14 +378,12 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Right Column: Results */}
             <div className="lg:col-span-7">
-               <MatchResults results={state.matchResults} candidateName={state.parsedResume?.name || '候选人'} />
+               <MatchResults results={state.matchResults} candidateName={safeRender(state.parsedResume?.name) || '候选人'} />
             </div>
           </div>
         )}
 
-        {/* BD View: Dashboard Header */}
         {isBD && (
           <div className="text-center py-12">
             <h1 className="text-3xl font-bold text-white mb-2">企业岗位库管理控制台</h1>
@@ -341,7 +391,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Job Manager (Always visible but read-only for coaches) */}
         <JobManager 
           jobs={state.jobs} 
           onUpdate={(updated) => setState(s => ({ ...s, jobs: updated }))}

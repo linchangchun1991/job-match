@@ -1,3 +1,4 @@
+
 export type UserRole = 'coach' | 'bd' | null;
 
 export interface Job {
@@ -12,31 +13,38 @@ export interface Job {
 }
 
 export interface AtsDimensions {
-  education: number;      // 教育背景 (院校档次/学历)
-  experience: number;     // 实习经历 (大厂/核心岗)
-  relevance: number;      // 实习相关性 (人岗匹配)
-  stability: number;      // 稳定性 (每段经历时长)
-  leadership: number;     // 领导力/社团/奖项
-  skills: number;         // 硬技能 (编程/数据/设计等)
-  language: number;       // 语言能力 (四六级/雅思)
-  certificate: number;    // 证书/资格认证
-  format: number;         // 简历规范性
+  education: number;      // 教育背景 (20%)
+  skills: number;         // 专业技能 (25%)
+  project: number;        // 项目经验 (25%)
+  internship: number;     // 实习经历 (20%)
+  quality: number;        // 综合素质 (10%)
 }
 
 export interface ParsedResume {
-  name: string | null;
-  education: string | null; // Highest Degree
-  university: string | null;
-  major: string | null;
-  graduationYear: string | null;
-  graduationType: string | null; // e.g., '2026届'
+  name: any;
+  phone: any;
+  email: any;
+  education: any; 
+  university: any;
+  major: any;
+  graduationYear: any;
+  graduationDate: any;
+  graduationType?: any;          // 新增: 毕业类型（应届/往届）
+  isFreshGrad: boolean;
+  workYears: number;
   expectedCities: string[];
   skills: string[];
-  experience: string | null;
-  jobPreference: string | null;
-  atsScore: number; // Total weighted score
-  atsDimensions: AtsDimensions; // Detailed dimension scores
-  atsAnalysis: string; // Brief ATS feedback
+  experience: any;
+  jobPreference: any;
+  tags: {
+    degree: string[];
+    exp: string[];
+    skill: string[];
+    intent: string[];
+  };
+  atsScore: number; 
+  atsDimensions: AtsDimensions; 
+  atsAnalysis: string; 
 }
 
 export interface MatchResult {
@@ -44,9 +52,10 @@ export interface MatchResult {
   score: number;
   matchReasons: string[];
   mismatchReasons: string[];
-  recommendation: string; // 推荐程度
+  recommendation: string; 
   tips: string;
   job: Job;
+  tags?: string[];
 }
 
 export interface MatchSession {

@@ -1,7 +1,22 @@
+
 import React from 'react';
 import { XCircle, Clock, Trash2, ChevronRight, User } from './Icons';
 import { MatchSession } from '../types';
 import { storage } from '../services/storage';
+
+// 核心修复：安全渲染辅助函数
+const safeRender = (value: any): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    if (value.institution) return value.institution;
+    if (value.name) return value.name;
+    if (value.degree) return value.degree;
+    try { return JSON.stringify(value); } catch { return '[Data]'; }
+  }
+  return String(value);
+};
 
 interface HistoryDrawerProps {
   isOpen: boolean;
@@ -45,7 +60,7 @@ const HistoryDrawer: React.FC<HistoryDrawerProps> = ({ isOpen, onClose, history,
                        <User className="w-4 h-4 text-purple-300" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-white">{session.candidateName || '未命名候选人'}</h4>
+                      <h4 className="text-sm font-semibold text-white">{safeRender(session.candidateName) || '未命名候选人'}</h4>
                       <p className="text-xs text-gray-500">{new Date(session.timestamp).toLocaleString('zh-CN')}</p>
                     </div>
                   </div>
@@ -54,7 +69,9 @@ const HistoryDrawer: React.FC<HistoryDrawerProps> = ({ isOpen, onClose, history,
                   </span>
                 </div>
                 <div className="text-xs text-gray-400 pl-10">
-                   <p className="line-clamp-1">{session.parsedResume?.graduationType} | {session.parsedResume?.education} | {session.parsedResume?.major}</p>
+                   <p className="line-clamp-1">
+                     {safeRender(session.parsedResume?.graduationType)} | {safeRender(session.parsedResume?.education)} | {safeRender(session.parsedResume?.major)}
+                   </p>
                    <p className="mt-1 text-gray-500">匹配岗位: {session.results.length}个</p>
                 </div>
               </div>

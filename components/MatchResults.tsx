@@ -1,6 +1,9 @@
-import React from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { MatchResult } from '../types';
-import { MapPin, Calendar, CheckCircle, XCircle, Download, ExternalLink } from './Icons';
+import { 
+  MapPin, Download, ExternalLink, Sparkles, Filter, Briefcase, CheckCircle, Ban
+} from './Icons';
 
 declare const XLSX: any;
 
@@ -9,163 +12,186 @@ interface MatchResultsProps {
   candidateName: string;
 }
 
+const getCleanLink = (link?: string) => {
+  if (!link || link === 'null' || link === 'undefined') return undefined;
+  let clean = link.trim();
+  if (!clean) return undefined;
+  if (!clean.startsWith('http') && !clean.startsWith('https')) {
+       if (clean.startsWith('www') || clean.includes('.')) clean = `https://${clean}`;
+       else return undefined; 
+  }
+  return clean;
+};
+
+// 修复后的卡片组件
+const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
+  const finalLink = getCleanLink(res.job.link);
+  
+  // 评分颜色逻辑
+  const scoreColor = res.score >= 85 ? 'text-green-400' : res.score >= 75 ? 'text-blue-400' : 'text-yellow-500';
+  const scoreBg = res.score >= 85 ? 'bg-green-400/10' : res.score >= 75 ? 'bg-blue-400/10' : 'bg-yellow-500/10';
+
+  return (
+    <div className="group bg-[#111116] border border-[#27272a] hover:border-blue-500/40 rounded-xl p-5 mb-4 transition-all duration-300 hover:shadow-lg hover:shadow-black/50">
+      
+      {/* 1. 顶部：公司名称 + 匹配分数 */}
+      <div className="flex justify-between items-start mb-2">
+        <h3 className="text-xl font-bold text-white tracking-tight group-hover:text-blue-400 transition-colors truncate pr-4">
+          {res.job.company}
+        </h3>
+        <div className={`flex flex-col items-end shrink-0 ${scoreColor}`}>
+          <span className="text-xl font-mono font-bold leading-none">{res.score}</span>
+          <span className="text-[10px] opacity-60 uppercase">Match</span>
+        </div>
+      </div>
+
+      {/* 2. 岗位名称 */}
+      <div className="flex items-center gap-2 mb-3">
+         <Briefcase className="w-4 h-4 text-gray-500" />
+         <span className="text-base font-medium text-gray-300">
+           {res.job.title}
+         </span>
+      </div>
+
+      {/* 3. 推荐理由 (简短) */}
+      {res.matchReasons && res.matchReasons.length > 0 && (
+        <div className="mb-4 bg-gray-900/50 border border-gray-800 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+             <CheckCircle className="w-3 h-3 text-gray-500 mt-0.5 shrink-0" />
+             <p className="text-xs text-gray-400 leading-relaxed">
+               <span className="text-gray-500 font-bold mr-1">推荐理由:</span>
+               {res.matchReasons[0]}
+               {res.matchReasons.length > 1 && `，${res.matchReasons[1]}`}
+             </p>
+          </div>
+        </div>
+      )}
+
+      {/* 4. 底部栏：地点 + 严格的投递按钮 */}
+      <div className="flex items-center justify-between border-t border-gray-800/50 pt-4 mt-2">
+        {/* 工作地点 */}
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <MapPin className="w-4 h-4 text-gray-600" />
+          <span>{res.job.location || '地点未说明'}</span>
+        </div>
+
+        {/* 投递链接按钮 - 严格模式 */}
+        <div>
+          {finalLink ? (
+            <a 
+              href={finalLink} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-blue-900/20 active:scale-95 hover:shadow-blue-500/20"
+            >
+              立即投递
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+             <div className="flex items-center gap-2 px-4 py-2 bg-[#1a1a20] text-gray-600 text-xs font-medium rounded-lg border border-gray-800 cursor-not-allowed select-none" title="该岗位暂未收录直投链接">
+                <Ban className="w-3 h-3" />
+                暂无投递链接
+             </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) => {
-  const displayResults = results.slice(0, 20);
+  const [filterCity, setFilterCity] = useState<string>('all');
 
-  const getApplyLink = (company: string, title: string) => {
-    const query = `${company} ${title} 招聘官网`;
-    return `https://www.baidu.com/s?wd=${encodeURIComponent(query)}`;
-  };
+  // 提取所有城市用于筛选
+  const cities = useMemo(() => {
+    const s = new Set<string>();
+    results.forEach(r => {
+      // 提取城市名（通常是前两个字或空格前）
+      if (r.job.location) s.add(r.job.location.split(/[\s/-]/)[0]);
+    });
+    return Array.from(s).filter(Boolean);
+  }, [results]);
 
-  const getCleanLink = (link?: string) => {
-    if (!link) return undefined;
-    let clean = link.trim();
-    // 再次防御：如果数据中仍然没有协议头，尝试修复
-    if (clean.startsWith('www.')) {
-        clean = `https://${clean}`;
-    }
-    return clean;
-  };
+  // 过滤逻辑
+  const filteredResults = useMemo(() => {
+    if (filterCity === 'all') return results;
+    return results.filter(r => r.job.location.includes(filterCity));
+  }, [results, filterCity]);
 
+  // 导出功能
   const handleExport = () => {
-    if (displayResults.length === 0) return;
-
-    const data = displayResults.map(r => ({
+    if (results.length === 0) return;
+    const data = results.map(r => ({
       '匹配分数': r.score,
-      '推荐程度': r.recommendation,
       '公司名称': r.job.company,
       '岗位名称': r.job.title,
       '工作地点': r.job.location,
-      '匹配优势': r.matchReasons.join('; '),
-      '风险提示': r.mismatchReasons.join('; '),
-      'AI建议': r.tips,
-      '投递链接': getCleanLink(r.job.link) || getApplyLink(r.job.company, r.job.title)
+      '推荐理由': r.matchReasons.join('; '),
+      '投递链接': getCleanLink(r.job.link) || '无链接'
     }));
-
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "岗位推荐表");
-    
-    const dateStr = new Date().toISOString().split('T')[0];
-    const fileName = `${candidateName}_岗位匹配报告_${dateStr}.xlsx`;
-    
-    XLSX.writeFile(wb, fileName);
+    XLSX.utils.book_append_sheet(wb, ws, "岗位清单");
+    XLSX.writeFile(wb, `${candidateName}_岗位推荐表.xlsx`);
   };
 
   if (results.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50">
+      <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50 py-12">
         <div className="p-4 rounded-full bg-gray-900 mb-4">
-          <Calendar className="w-6 h-6 text-gray-500" />
+          <Briefcase className="w-8 h-8 text-gray-500" />
         </div>
-        <p className="text-sm">等待分析结果...</p>
+        <p className="text-sm">暂无匹配岗位</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-end mb-6">
+    <div className="h-full flex flex-col">
+       {/* 顶部栏：标题 + 筛选器 */}
+       <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
         <div>
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            推荐岗位 TOP MATCHES <span className="bg-blue-900/30 text-blue-400 border border-blue-800 text-[10px] px-1.5 py-0.5 rounded font-mono">{displayResults.length}</span>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-blue-500" /> 
+            推荐岗位 ({filteredResults.length})
           </h2>
         </div>
-        <button 
-          onClick={handleExport}
-          className="flex items-center gap-2 px-3 py-1.5 bg-white text-black hover:bg-gray-200 rounded text-xs font-bold transition-colors"
-        >
-          <Download className="w-3 h-3" />
-          导出Excel报表
-        </button>
+        
+        <div className="flex items-center gap-2">
+          {/* 城市筛选 */}
+          <div className="relative">
+            <Filter className="w-3 h-3 text-gray-500 absolute left-2.5 top-2.5" />
+            <select 
+              value={filterCity}
+              onChange={(e) => setFilterCity(e.target.value)}
+              className="bg-[#111116] border border-gray-800 text-xs text-gray-300 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:border-blue-500 appearance-none min-w-[120px]"
+            >
+              <option value="all">所有城市</option>
+              {cities.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          
+          {/* 导出按钮 */}
+          <button 
+            onClick={handleExport}
+            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg text-xs font-bold transition-colors border border-white/5"
+          >
+            <Download className="w-3 h-3" />
+            导出
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
-        {displayResults.map((res, idx) => {
-          const finalLink = getCleanLink(res.job.link);
-          const applyLink = finalLink || getApplyLink(res.job.company, res.job.title);
-          
-          return (
-            <div 
-              key={res.jobId}
-              className="bg-[#111116] border border-[#27272a] rounded-lg p-5 hover:border-gray-600 transition-all duration-200 group relative"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors">
-                      {res.job.company}
-                    </h3>
-                    {res.recommendation === '极力推荐' && (
-                      <span className="text-[10px] bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded border border-blue-800 font-medium">强烈推荐</span>
-                    )}
-                    {res.recommendation === '推荐' && (
-                      <span className="text-[10px] bg-green-900/30 text-green-400 px-1.5 py-0.5 rounded border border-green-800 font-medium">推荐</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mt-1 font-mono">
-                    <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {res.job.location}</span>
-                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {res.job.type}</span>
-                    <span className="text-gray-300">{res.job.title}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <div className={`text-xl font-bold font-mono ${
-                      res.score >= 85 ? 'text-blue-500' : 
-                      res.score >= 70 ? 'text-white' : 'text-gray-500'
-                    }`}>
-                      {res.score}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-800">
-                <div>
-                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">匹配优势 MATCH</h4>
-                  <ul className="text-xs text-gray-400 space-y-1">
-                    {res.matchReasons.slice(0, 3).map((r, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="mt-1 w-1 h-1 rounded-full bg-blue-500 shrink-0"></span>
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                {res.mismatchReasons.length > 0 && (
-                  <div>
-                    <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">风险提示 RISK</h4>
-                    <ul className="text-xs text-gray-400 space-y-1">
-                      {res.mismatchReasons.slice(0, 2).map((r, i) => (
-                        <li key={i} className="flex items-start gap-2">
-                          <span className="mt-1 w-1 h-1 rounded-full bg-gray-600 shrink-0"></span>
-                          {r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-              
-              <div className="flex items-center justify-between mt-4 pt-3">
-                 <div className="text-xs text-gray-500 italic max-w-[70%] truncate">
-                  💡 {res.tips}
-                 </div>
-                 <a 
-                   href={applyLink}
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded font-medium transition-colors ${
-                     finalLink 
-                      ? "bg-blue-600 hover:bg-blue-500 text-white" 
-                      : "bg-gray-800 hover:bg-gray-700 text-gray-300"
-                   }`}
-                 >
-                   {finalLink ? "立即投递" : "官网搜索"} <ExternalLink className="w-3 h-3" />
-                 </a>
-              </div>
-            </div>
-          );
-        })}
+      {/* 岗位列表区域 */}
+      <div className="overflow-y-auto pr-2 custom-scrollbar pb-20">
+        {filteredResults.map(r => (
+          <JobCard key={r.jobId} res={r} />
+        ))}
+        
+        {/* 底部提示 */}
+        <div className="text-center text-[10px] text-gray-600 mt-8 mb-4">
+           已显示所有匹配岗位
+        </div>
       </div>
     </div>
   );
