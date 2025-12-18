@@ -3,7 +3,14 @@ import { Job, ParsedResume, MatchResult } from '../types';
 
 function stripMarkdown(str: string): string {
   if (!str) return "";
-  return str.replace(/```(json)?/g, '').replace(/```/g, '').trim();
+  let cleaned = str.replace(/```(json)?/g, '').replace(/```/g, '').trim();
+  // 移除可能存在的 JSON 数组外的解释性文字
+  const startIndex = cleaned.indexOf('[');
+  const endIndex = cleaned.lastIndexOf(']');
+  if (startIndex !== -1 && endIndex !== -1) {
+    cleaned = cleaned.substring(startIndex, endIndex + 1);
+  }
+  return cleaned;
 }
 
 async function callAI(params: {
@@ -13,7 +20,7 @@ async function callAI(params: {
   temperature?: number;
 }) {
   const key = (window as any).process?.env?.API_KEY || (process as any).env?.API_KEY || "";
-  if (!key) throw new Error("API Key 未设置，请检查环境变量。");
+  if (!key) throw new Error("API Key 未设置，请在 index.html 或设置中检查。");
 
   if (key.startsWith('sk-')) {
     const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -28,9 +35,8 @@ async function callAI(params: {
           { role: "system", content: params.systemInstruction },
           { role: "user", content: params.prompt }
         ],
-        temperature: params.temperature ?? 0.3,
-        // 强制要求 JSON 时，确保 systemInstruction 包含 JSON 字样
-        response_format: params.responseMimeType === "application/json" ? { type: "json_object" } : undefined
+        temperature: params.temperature ?? 0.1, // 降低随机性，提高稳定性
+        response_format: { type: "json_object" }
       })
     });
 
@@ -58,12 +64,12 @@ async function callAI(params: {
 
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const currentDate = new Date().toISOString().split('T')[0];
-  const systemInstruction = `你是一位顶尖技术猎头。任务：从简历提取 JSON 画像。必须包含核心领域、资历、技能标签。`;
+  const systemInstruction = `你是一位求职专家。从简历中提取 JSON。必须包含 coreDomain, seniorityLevel, coreTags, atsDimensions, atsAnalysis。`;
 
   try {
     const res = await callAI({
       systemInstruction,
-      prompt: `当前日期：${currentDate}\n简历内容：\n${text.slice(0, 10000)}`,
+      prompt: `日期：${currentDate}\n简历：\n${text.slice(0, 10000)}`,
       responseMimeType: "application/json",
       temperature: 0.1
     });
@@ -71,7 +77,7 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     const data = JSON.parse(stripMarkdown(res.text || '{}'));
     return {
       ...data,
-      coreDomain: data.coreDomain || "通用领域",
+      coreDomain: data.coreDomain || "职场新人",
       seniorityLevel: data.seniorityLevel || "待评估",
       coreTags: data.coreTags || [],
       tags: data.tags || { degree: [], exp: [], skill: [], intent: [] },
@@ -90,14 +96,14 @@ export const matchJobs = async (
   const validJobs = jobs.slice(0, 100); 
   if (validJobs.length === 0) return [];
 
-  const systemInstruction = `匹配简历与岗位，返回 JSON 数组格式。`;
+  const systemInstruction = `匹配简历与岗位，返回 JSON: { "matches": [{ "i": 索引, "s": 分数, "reasons": [], "coach_advice": "" }] }`;
 
   try {
     const res = await callAI({
       systemInstruction,
-      prompt: `简历: ${JSON.stringify(resume)}\n职位库: ${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}`,
+      prompt: `简历: ${JSON.stringify(resume)}\n职位: ${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}`,
       responseMimeType: "application/json",
-      temperature: 0.5
+      temperature: 0.3
     });
 
     const parsed = JSON.parse(stripMarkdown(res.text || '{"matches":[]}'));
@@ -126,42 +132,39 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  // 增加单段文本长度，减少请求次数
-  const chunkSize = 15000;
+  const chunkSize = 12000;
   const chunks = [];
   for (let i = 0; i < rawText.length; i += chunkSize) chunks.push(rawText.slice(i, i + chunkSize));
 
   let allJobs: any[] = [];
-  const systemInstruction = `你是一个精准的招聘数据提取助手。
-任务：从文本（包含链接、公司名、地点、职位名，常用 | 分隔）中提取结构化岗位。
-要求：
-1. 必须返回 JSON 格式。格式必须是包含岗位的数组：[{"company": "...", "title": "...", "location": "...", "link": "..."}]。
-2. 即使数据不全也要尽量提取。微信公众号链接（mp.weixin.qq.com）通常是 link 字段。
-3. 如果该段落没找到任何岗位，返回空数组 []。`;
+  const systemInstruction = `你是一个精准的招聘数据提取专家。
+输入格式通常为：行业 | 公司 | 岗位列表 | 地点 | 链接 | 其他。
+任务：
+1. 识别每一行的数据。
+2. 重要：如果“岗位列表”中包含多个岗位（用逗号、空格或顿号分隔），请将其拆分成多个独立的对象。
+3. 必须返回 JSON 格式，包含一个名为 "jobs" 的数组。
+4. 结构：{"jobs": [{"company": "公司名", "title": "单体岗位名", "location": "地点", "link": "链接"}]}。
+5. 忽略空行或无关文字。`;
 
   for (let i = 0; i < chunks.length; i++) {
     if (onProgress) onProgress(i + 1, chunks.length);
     try {
       const res = await callAI({
         systemInstruction,
-        prompt: `请提取以下文本中的招聘岗位：\n${chunks[i]}`,
+        prompt: `请提取以下招聘数据并拆分岗位：\n${chunks[i]}`,
         responseMimeType: "application/json",
         temperature: 0.1
       });
       
-      const cleaned = stripMarkdown(res.text || "[]");
-      let data = JSON.parse(cleaned);
+      const cleaned = stripMarkdown(res.text || '{"jobs":[]}');
+      const data = JSON.parse(cleaned);
       
-      // 容错处理：如果 AI 返回的是 { "jobs": [...] } 而不是数组
-      if (data && !Array.isArray(data) && data.jobs) {
-        data = data.jobs;
-      }
-      
-      if (Array.isArray(data)) {
-        allJobs = [...allJobs, ...data];
+      const jobsInChunk = Array.isArray(data) ? data : (data.jobs || []);
+      if (Array.isArray(jobsInChunk)) {
+        allJobs = [...allJobs, ...jobsInChunk];
       }
     } catch (e: any) {
-      console.warn(`第 ${i+1} 段解析异常:`, e.message);
+      console.warn(`段落 ${i+1} 解析异常:`, e.message);
     }
   }
   return allJobs;
