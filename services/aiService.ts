@@ -2,35 +2,24 @@
 import { Job, ParsedResume, MatchResult } from '../types';
 
 /**
- * 极强力 JSON 提取器
- * 确保即使 AI 返回了 Markdown 包裹也能正确提取
+ * 强化版 JSON 提取器
+ * 支持 Markdown 包裹和纯净 JSON 字符串
  */
 function stripMarkdown(str: string): string {
   if (!str) return "";
-  let cleaned = str.replace(/```(json)?/g, '').replace(/```/g, '').trim();
+  const trimmed = str.trim();
   
-  const firstBracket = cleaned.indexOf('[');
+  // 尝试直接解析
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) return trimmed;
+
+  let cleaned = str.replace(/```json/g, '').replace(/```/g, '').trim();
+  
   const firstBrace = cleaned.indexOf('{');
-  let startIndex = -1;
-  
-  if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
-    startIndex = firstBracket;
-  } else if (firstBrace !== -1) {
-    startIndex = firstBrace;
-  }
-
-  const lastBracket = cleaned.lastIndexOf(']');
   const lastBrace = cleaned.lastIndexOf('}');
-  let endIndex = -1;
-  
-  if (lastBracket !== -1 && (lastBrace === -1 || lastBracket > lastBrace)) {
-    endIndex = lastBracket;
-  } else if (lastBrace !== -1) {
-    endIndex = lastBrace;
-  }
 
-  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-    return cleaned.substring(startIndex, endIndex + 1);
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    return cleaned.substring(firstBrace, lastBrace + 1);
   }
   return cleaned;
 }
@@ -59,6 +48,7 @@ async function callAI(params: {
         { role: "user", content: params.prompt }
       ],
       temperature: params.temperature ?? 0.1,
+      // 开启 JSON 模式，确保返回格式正确
       response_format: { type: "json_object" }
     })
   });
@@ -140,49 +130,36 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  // 将原始文本按行切分，不再做预过滤，直接交给 AI 识别
+  // 核心变更：精准行提取
   const lines = rawText.split('\n')
     .map(line => line.trim())
-    .filter(line => line.length > 5); // 仅过滤掉极短的干扰行
+    .filter(line => line.includes('|') && line.length > 10 && !line.includes('==='));
   
   if (lines.length === 0) return [];
 
-  // 极致稳定批次：每组只处理 5 行
-  // 理由：您的数据一行可能拆出 20 个岗位，5 行就是 100 个岗位，JSON 长度极易爆表。
-  const batchSize = 5; 
-  const batches = [];
-  for (let i = 0; i < lines.length; i += batchSize) {
-    batches.push(lines.slice(i, i + batchSize));
-  }
-
+  // 极致稳定性优化：1 行调用一次
+  // 因为您的一行数据（如山东能源或联芸科技）极其复杂，包含数十个岗位。
+  // 批量解析会导致 AI 返回的 JSON 长度超过单次输出限制，造成截断报错。
   let allJobs: any[] = [];
-  const systemInstruction = `你是一个精准的招聘数据解析器。
-输入数据是由管道符 (|) 分隔的文本，每行代表一家公司的招聘汇总。
+  const systemInstruction = `你是一个高精度的招聘数据提取机器人。
+你将收到一行包含管道符 (|) 分隔的招聘文本。
 
 解析规则：
-1. 识别结构：[行业/类别] | [公司名] | [岗位列表] | [地点] | [直投链接] | [其他]
-2. 核心任务：提取第2列(公司)和第3列(岗位)。
-3. 关键动作：第3列通常包含多个岗位（如：产品类，技术类），你必须将其拆分为多个独立的岗位对象。
-4. 分隔符识别：第3列的岗位可能被逗号(，,)、顿号(、)、空格、或甚至没有分隔符（需语义拆分）连接，请务必彻底拆开。
-5. 必须返回包含 "jobs" 数组的 JSON 对象。
+1. 结构识别：[行业] | [公司名] | [岗位池] | [地点] | [链接]
+2. 强制任务：如果第3列(岗位池)包含多个岗位（用逗号、顿号、空格、或仅仅是词语拼接），你必须将它们完全拆分为多个独立的 JSON 对象。
+3. 必须输出包含 "jobs" 键的 JSON 对象。
 
-JSON 结构示例：
-{
-  "jobs": [
-    {"company": "公司A", "title": "岗位1", "location": "地点", "link": "链接"},
-    {"company": "公司A", "title": "岗位2", "location": "地点", "link": "链接"}
-  ]
-}
+示例输出：
+{"jobs": [{"company": "xxx", "title": "岗位1", "location": "xxx", "link": "xxx"}]}
 
-严禁丢失链接，严禁合并岗位，严禁输出非 JSON 文本。`;
+严禁合并岗位！必须拆开！`;
 
-  for (let i = 0; i < batches.length; i++) {
-    if (onProgress) onProgress(i + 1, batches.length);
+  for (let i = 0; i < lines.length; i++) {
+    if (onProgress) onProgress(i + 1, lines.length);
     try {
-      const prompt = `请解析并拆分以下招聘信息（第3列为岗位池）：\n\n${batches[i].join('\n')}`;
       const res = await callAI({
         systemInstruction,
-        prompt,
+        prompt: `解析此行并拆分所有岗位：\n${lines[i]}`,
         temperature: 0.1
       });
       
@@ -190,14 +167,13 @@ JSON 结构示例：
       if (!cleaned) continue;
 
       const data = JSON.parse(cleaned);
-      const jobsInBatch = data.jobs || (Array.isArray(data) ? data : []);
+      const jobsInLine = data.jobs || [];
       
-      if (Array.isArray(jobsInBatch)) {
-        allJobs = [...allJobs, ...jobsInBatch];
+      if (Array.isArray(jobsInLine)) {
+        allJobs = [...allJobs, ...jobsInLine];
       }
     } catch (e: any) {
-      console.error(`[解析失败] 第 ${i+1} 批次:`, e.message);
-      // 如果某一批次失败，继续处理下一批，而不是直接中断
+      console.error(`[行解析失败] 内容: ${lines[i].slice(0, 30)}... | 错误:`, e.message);
     }
   }
   return allJobs;
