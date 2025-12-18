@@ -140,51 +140,61 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
-  // 必须大幅减小分块：因为一个格子可能拆分出20个对象，JSON 长度会膨胀10倍
-  // 2000 字符是保证 DeepSeek 不断开的最稳分块大小
-  const chunkSize = 2000; 
-  const chunks = [];
-  for (let i = 0; i < rawText.length; i += chunkSize) {
-    chunks.push(rawText.slice(i, i + chunkSize));
+  // 核心修复：不再按字符长度切分，必须按行切分，防止一行被切断导致无法识别
+  const lines = rawText.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.includes('|') && line.length > 10);
+  
+  if (lines.length === 0) return [];
+
+  const batchSize = 8; // 每组处理 8 行，保证输出 JSON 不会因为过长而截断
+  const batches = [];
+  for (let i = 0; i < lines.length; i += batchSize) {
+    batches.push(lines.slice(i, i + batchSize));
   }
 
   let allJobs: any[] = [];
-  const systemInstruction = `你是一个精准的数据转换机器人。
-输入格式：[行业] | [公司名] | [岗位列表] | [地点] | [链接] | [备注]
+  const systemInstruction = `你是一个精准的招聘数据结构化机器人。
+输入文本格式：[行业] | [公司] | [岗位列表] | [地点] | [链接] | [备注]
+
 核心规则：
-1. 必须识别第2列为 "company"，第3列为 "title"。
-2. 如果第3列包含多个岗位（用逗号、空格、顿号分隔），你必须将其拆分为多个独立的 JSON 对象。
-3. 必须输出包含 "jobs" 数组的 JSON 对象。
+1. 每一行是一个独立的记录。
+2. 必须识别第2列为 "company"，第3列为 "title"，第4列为 "location"，第5列为 "link"。
+3. 强制要求：如果第3列（岗位列表）包含多个岗位名（用逗号、顿号、空格、括号或“及”分隔），你必须将该行拆分为多个独立的 JSON 对象。
+4. 输出格式必须是合法的 JSON，包含一个名为 "jobs" 的数组。
 
 示例输入：
 游戏 | 4399 | 产品类，技术类 | 广州 | https://link
 
 示例输出：
-{"jobs": [
-  {"company": "4399", "title": "产品类", "location": "广州", "link": "https://link"},
-  {"company": "4399", "title": "技术类", "location": "广州", "link": "https://link"}
-]}
+{
+  "jobs": [
+    {"company": "4399", "title": "产品类", "location": "广州", "link": "https://link"},
+    {"company": "4399", "title": "技术类", "location": "广州", "link": "https://link"}
+  ]
+}
 
-严禁合并多个岗位到同一个 title 字段！`;
+严禁合并多个岗位！严禁输出非 JSON 格式！`;
 
-  for (let i = 0; i < chunks.length; i++) {
-    if (onProgress) onProgress(i + 1, chunks.length);
+  for (let i = 0; i < batches.length; i++) {
+    if (onProgress) onProgress(i + 1, batches.length);
     try {
+      const prompt = `请解析并拆分以下招聘行：\n\n${batches[i].join('\n')}`;
       const res = await callAI({
         systemInstruction,
-        prompt: `请提取并拆分以下文本中的所有独立岗位：\n${chunks[i]}`,
+        prompt,
         temperature: 0.1
       });
       
       const cleaned = stripMarkdown(res.text);
       const data = JSON.parse(cleaned);
       
-      const jobsInChunk = data.jobs || (Array.isArray(data) ? data : []);
-      if (Array.isArray(jobsInChunk)) {
-        allJobs = [...allJobs, ...jobsInChunk];
+      const jobsInBatch = data.jobs || (Array.isArray(data) ? data : []);
+      if (Array.isArray(jobsInBatch)) {
+        allJobs = [...allJobs, ...jobsInBatch];
       }
     } catch (e: any) {
-      console.warn(`[解析警告] 分段 ${i+1} 可能由于输出过长解析失败:`, e.message);
+      console.warn(`[解析警告] 第 ${i+1} 批次解析失败:`, e.message);
     }
   }
   return allJobs;
