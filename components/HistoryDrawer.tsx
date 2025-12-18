@@ -1,22 +1,8 @@
-
 import React from 'react';
 import { XCircle, Clock, Trash2, ChevronRight, User } from './Icons';
 import { MatchSession } from '../types';
 import { storage } from '../services/storage';
-
-// 核心修复：安全渲染辅助函数
-const safeRender = (value: any): string => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'object') {
-    if (value.institution) return value.institution;
-    if (value.name) return value.name;
-    if (value.degree) return value.degree;
-    try { return JSON.stringify(value); } catch { return '[Data]'; }
-  }
-  return String(value);
-};
+import { safeRender } from '../App';
 
 interface HistoryDrawerProps {
   isOpen: boolean;

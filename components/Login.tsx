@@ -6,6 +6,25 @@ interface LoginProps {
   onLogin: (role: UserRole) => void;
 }
 
+const Logo: React.FC<{ className?: string }> = ({ className = "h-10" }) => {
+  const [error, setError] = useState(false);
+  if (error) {
+    return (
+      <div className={`flex flex-col justify-center ${className}`}>
+        <h1 className="text-2xl font-bold text-white tracking-widest">HIGHMARK</h1>
+      </div>
+    );
+  }
+  return (
+    <img 
+      src="logo.png" 
+      alt="HIGHMARK" 
+      className={`${className} object-contain filter brightness-110`} 
+      onError={() => setError(true)}
+    />
+  );
+};
+
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [activeTab, setActiveTab] = useState<'coach' | 'bd'>('coach');
   const [username, setUsername] = useState('');
@@ -16,19 +35,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setError('');
     
     if (activeTab === 'bd') {
-      // 简单的硬编码密码，防止教练误入BD后台
       if (password !== 'hm2025') {
         setError('企业管理员密码错误 (默认: hm2025)');
         return;
       }
     }
 
-    if (!username.trim()) {
-      // 自动填充一个名字，如果没填的话
-      onLogin(activeTab);
-    } else {
-      onLogin(activeTab);
-    }
+    onLogin(activeTab);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -40,18 +53,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gray-900 via-black to-black">
       <div className="relative w-full max-w-sm px-4">
-        {/* 背景装饰 */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-blue-500/10 blur-[100px] rounded-full pointer-events-none"></div>
 
         <div className="relative bg-[#111116] border border-[#27272a] rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
           
           <div className="p-8 pb-6 text-center border-b border-[#27272a]/50">
-             <div className="h-10 flex items-center justify-center mb-4">
-                <img src="logo.png" alt="HIGHMARK" className="h-full object-contain filter brightness-110" onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  // Fallback Text
-                  ((e.target as HTMLImageElement).parentNode as HTMLElement).innerHTML = '<h1 class="text-2xl font-bold text-white tracking-widest">HIGHMARK</h1>';
-                }}/>
+             <div className="flex items-center justify-center mb-4">
+                <Logo className="h-10" />
              </div>
             <p className="text-[10px] text-gray-500 tracking-[0.3em] uppercase font-medium">智能选岗系统 Professional</p>
           </div>

@@ -12,28 +12,71 @@ import { jobService } from './services/jobService';
 import { AppState, Job, ParsedResume, UserRole, MatchSession } from './types';
 import { isCloudEnabled } from './services/supabase';
 
-// 核心修复：防止 React Error #31 的安全渲染函数
-const safeRender = (value: any): string => {
+/**
+ * 核心修复：彻底解决 [object Object] 和 React Error #31
+ * 确保即使 AI 返回了嵌套对象，也不会导致 React 渲染崩溃
+ */
+export const safeRender = (value: any): string => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return String(value);
+  
   if (typeof value === 'object') {
-    if (value.institution) return value.institution;
-    if (value.name) return value.name;
-    if (value.degree) return value.degree;
+    // 检查是否是 React 元素，防止循环渲染或版本冲突导致的 Error #31
+    if (value.$$typeof) return '[React Element]';
+    
+    // 常见的 AI 返回字段映射
+    if (value.name && typeof value.name === 'string') return value.name;
+    if (value.title && typeof value.title === 'string') return value.title;
+    if (value.company && typeof value.company === 'string') return value.company;
+    if (value.institution && typeof value.institution === 'string') return value.institution;
+    if (value.degree && typeof value.degree === 'string') return value.degree;
+    if (value.label && typeof value.label === 'string') return value.label;
+    
+    // 如果是数组，尝试用逗号连接
+    if (Array.isArray(value)) {
+      return value.map(item => safeRender(item)).join(', ');
+    }
+
     try {
-      return JSON.stringify(value);
+      // 如果对象有 toString 但不是默认的 [object Object]
+      const str = value.toString();
+      if (str !== '[object Object]') return str;
+      
+      // 最后尝试序列化，如果太复杂则降级
+      const json = JSON.stringify(value);
+      return json.length > 100 ? '[Complex Data]' : json;
     } catch {
-      return '[Complex Data]';
+      return '[Data Object]';
     }
   }
   return String(value);
 };
 
+const Logo: React.FC<{ className?: string }> = ({ className = "h-8" }) => {
+  const [error, setError] = useState(false);
+  if (error) {
+    return (
+      <div className={`flex flex-col justify-center ${className}`}>
+        <h1 className="text-lg font-bold tracking-tight text-white uppercase">HIGHMARK</h1>
+      </div>
+    );
+  }
+  return (
+    <img 
+      src="logo.png" 
+      alt="HIGHMARK" 
+      className={`${className} object-contain filter brightness-110`} 
+      onError={() => setError(true)}
+    />
+  );
+};
+
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     userRole: null,
-    apiKey: '', // Managed by environment
+    apiKey: '', 
     jobs: [],
     currentResume: '',
     parsedResume: null,
@@ -53,26 +96,32 @@ const App: React.FC = () => {
   }, []);
 
   const initData = async () => {
-    setCloudEnabled(isCloudEnabled());
-    const history = storage.getSessions();
-    const results = storage.getHistory();
-    
     try {
+      setCloudEnabled(isCloudEnabled());
+      const history = storage.getSessions();
+      const results = storage.getHistory();
+      
       const jobs = await jobService.fetchAll();
       setState(s => ({
         ...s,
-        jobs: jobs,
-        matchHistory: history,
-        matchResults: results
+        jobs: jobs || [],
+        matchHistory: history || [],
+        matchResults: results || []
       }));
     } catch (e) {
-      console.error("Failed to fetch jobs", e);
+      console.error("Critical: Initialization error", e);
+      const history = storage.getSessions();
+      setState(s => ({ ...s, matchHistory: history || [] }));
     }
   };
 
   const refreshJobs = async () => {
-    const jobs = await jobService.fetchAll();
-    setState(s => ({ ...s, jobs }));
+    try {
+      const jobs = await jobService.fetchAll();
+      setState(s => ({ ...s, jobs: jobs || [] }));
+    } catch (e) {
+      console.error("Refresh jobs failed", e);
+    }
   };
 
   const handleLogin = (role: UserRole) => {
@@ -118,7 +167,9 @@ const App: React.FC = () => {
             const all = [...current.matchResults, ...newBatch];
             const uniqueMap = new Map();
             all.forEach(r => {
-                const key = `${r.job.company.trim()}-${r.job.title.trim()}`;
+                const company = safeRender(r.job.company)?.trim() || 'unknown';
+                const title = safeRender(r.job.title)?.trim() || 'position';
+                const key = `${company}-${title}`;
                 if (!uniqueMap.has(key) || uniqueMap.get(key).score < r.score) {
                     uniqueMap.set(key, r);
                 }
@@ -191,28 +242,20 @@ const App: React.FC = () => {
   const isBD = state.userRole === 'bd';
 
   return (
-    <div className="min-h-screen bg-black text-white pb-20 font-sans">
+    <div className="min-h-screen bg-black text-white pb-20 font-sans selection:bg-blue-500/30">
       <header className="sticky top-0 z-40 bg-black/90 backdrop-blur-md border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-8">
-               <img src="logo.png" alt="HIGHMARK" className="h-full object-contain filter brightness-110" onError={(e) => {
-                 (e.target as HTMLImageElement).style.display = 'none';
-                 ((e.target as HTMLImageElement).nextSibling as HTMLElement).style.display = 'flex';
-               }}/>
-               <div className="hidden flex-col" style={{display: 'none'}}>
-                  <h1 className="text-lg font-bold tracking-tight text-white uppercase">HIGHMARK</h1>
-               </div>
-            </div>
-            <div className="h-4 w-[1px] bg-gray-700"></div>
-            <span className="text-xs text-gray-400 tracking-widest uppercase">
+            <Logo className="h-6" />
+            <div className="h-4 w-[1px] bg-gray-700 hidden xs:block"></div>
+            <span className="text-xs text-gray-400 tracking-widest uppercase hidden xs:block">
               智能选岗系统 <span className="text-[10px] opacity-50">PRO (GEMINI 3.0)</span>
             </span>
           </div>
           
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 mr-2 hidden sm:flex items-center gap-2">
-               <span>当前身份: {isCoach ? '职业教练' : '企业BD'}</span>
+            <span className="text-xs text-gray-500 mr-2 hidden md:flex items-center gap-2">
+               <span>身份: {isCoach ? '职业教练' : '企业BD'}</span>
                {cloudEnabled ? (
                  <span className="text-green-500 flex items-center gap-1 bg-green-900/20 px-2 py-0.5 rounded text-[10px] border border-green-900/50">
                    <Zap className="w-3 h-3" /> 云端同步
@@ -232,20 +275,20 @@ const App: React.FC = () => {
                 className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all"
               >
                 <Clock className="w-4 h-4" />
-                <span className="hidden sm:inline">历史记录</span>
+                <span className="hidden sm:inline">历史</span>
               </button>
             )}
             <button 
               onClick={() => setState(s => ({ ...s, settingsOpen: true }))}
               className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-md transition-all relative"
-              title="系统设置"
+              title="设置"
             >
               <Settings className="w-4 h-4" />
             </button>
             <button 
               onClick={handleLogout}
               className="p-2 text-gray-400 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
-              title="退出登录"
+              title="退出"
             >
               <LogOut className="w-4 h-4" />
             </button>
