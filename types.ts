@@ -9,33 +9,37 @@ export interface Job {
   requirement: string;
   title: string;
   updateTime: string;
-  link?: string; // 投递链接
+  link?: string; 
 }
 
 export interface AtsDimensions {
-  education: number;      // 教育背景 (20%)
-  skills: number;         // 专业技能 (25%)
-  project: number;        // 项目经验 (25%)
-  internship: number;     // 实习经历 (20%)
-  quality: number;        // 综合素质 (10%)
+  education: number;      
+  skills: number;         
+  project: number;        
+  internship: number;     
+  quality: number;        
 }
 
 export interface ParsedResume {
-  name: any;
-  phone: any;
-  email: any;
-  education: any; 
-  university: any;
-  major: any;
-  graduationYear: any;
-  graduationDate: any;
-  graduationType?: any;          // 新增: 毕业类型（应届/往届）
+  name: string;
+  phone: string;
+  email: string;
+  education: string; 
+  university: string;
+  major: string;
+  graduationYear: string;
+  graduationDate: string;
+  graduationType?: string;
   isFreshGrad: boolean;
   workYears: number;
   expectedCities: string[];
   skills: string[];
-  experience: any;
-  jobPreference: any;
+  experience: string;
+  jobPreference: string;
+  // 新增画像字段
+  coreDomain: string;      // 核心领域
+  seniorityLevel: string;  // 资历评估
+  coreTags: string[];      // 核心标签
   tags: {
     degree: string[];
     exp: string[];
@@ -55,7 +59,6 @@ export interface MatchResult {
   recommendation: string; 
   tips: string;
   job: Job;
-  tags?: string[];
 }
 
 export interface MatchSession {
