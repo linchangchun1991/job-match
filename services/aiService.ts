@@ -48,7 +48,6 @@ async function callAI(params: {
         { role: "user", content: params.prompt }
       ],
       temperature: params.temperature ?? 0.1,
-      // 开启 JSON 模式，确保返回格式正确
       response_format: { type: "json_object" }
     })
   });
@@ -128,38 +127,43 @@ export const matchJobs = async (
 
 export const parseSmartJobs = async (
   rawText: string, 
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number, errorLines?: string[]) => void
 ): Promise<any[]> => {
-  // 核心变更：精准行提取
+  // 支持中英文竖线: | (U+007C) 和 丨 (U+4E28)
+  const delimiterRegex = /[|丨]/;
   const lines = rawText.split('\n')
     .map(line => line.trim())
-    .filter(line => line.includes('|') && line.length > 10 && !line.includes('==='));
+    .filter(line => delimiterRegex.test(line) && line.length > 5 && !line.includes('==='));
   
   if (lines.length === 0) return [];
 
-  // 极致稳定性优化：1 行调用一次
-  // 因为您的一行数据（如山东能源或联芸科技）极其复杂，包含数十个岗位。
-  // 批量解析会导致 AI 返回的 JSON 长度超过单次输出限制，造成截断报错。
   let allJobs: any[] = [];
-  const systemInstruction = `你是一个高精度的招聘数据提取机器人。
-你将收到一行包含管道符 (|) 分隔的招聘文本。
+  let errorLines: string[] = [];
+
+  const systemInstruction = `你是一个精准的招聘数据解析器。
+输入是以竖线（| 或 丨）分隔的行数据。
 
 解析规则：
-1. 结构识别：[行业] | [公司名] | [岗位池] | [地点] | [链接]
-2. 强制任务：如果第3列(岗位池)包含多个岗位（用逗号、顿号、空格、或仅仅是词语拼接），你必须将它们完全拆分为多个独立的 JSON 对象。
-3. 必须输出包含 "jobs" 键的 JSON 对象。
+1. 识别字段数量：
+   - 5个字段：[行业] | [公司] | [岗位池] | [地点] | [链接]
+   - 4个字段：[公司] | [岗位池] | [地点] | [链接]
+2. 强制要求：
+   - 如果第3列（5字段）或第2列（4字段）包含多个岗位，必须拆分为多个对象。
+   - 验证：[公司] 和 [链接] 必须存在且非空。
+3. 错误处理：如果字段数量不是 4 或 5，或者缺少关键字段，请在返回的 JSON 中包含 "error" 字段说明原因。
 
-示例输出：
-{"jobs": [{"company": "xxx", "title": "岗位1", "location": "xxx", "link": "xxx"}]}
-
-严禁合并岗位！必须拆开！`;
+输出格式示例：
+{
+  "jobs": [{"company": "A", "title": "B", "location": "C", "link": "D"}],
+  "error": null
+}`;
 
   for (let i = 0; i < lines.length; i++) {
-    if (onProgress) onProgress(i + 1, lines.length);
+    if (onProgress) onProgress(i + 1, lines.length, errorLines);
     try {
       const res = await callAI({
         systemInstruction,
-        prompt: `解析此行并拆分所有岗位：\n${lines[i]}`,
+        prompt: `解析此行内容：\n${lines[i]}`,
         temperature: 0.1
       });
       
@@ -167,13 +171,23 @@ export const parseSmartJobs = async (
       if (!cleaned) continue;
 
       const data = JSON.parse(cleaned);
-      const jobsInLine = data.jobs || [];
       
+      if (data.error) {
+        errorLines.push(`第 ${i+1} 行: ${data.error} (内容: ${lines[i].slice(0,20)}...)`);
+        continue;
+      }
+
+      const jobsInLine = data.jobs || [];
       if (Array.isArray(jobsInLine)) {
-        allJobs = [...allJobs, ...jobsInLine];
+        // 二次验证必填项
+        const validJobs = jobsInLine.filter(j => j.company && j.link);
+        if (validJobs.length < jobsInLine.length) {
+            errorLines.push(`第 ${i+1} 行: 存在缺失[公司]或[链接]的子岗位`);
+        }
+        allJobs = [...allJobs, ...validJobs];
       }
     } catch (e: any) {
-      console.error(`[行解析失败] 内容: ${lines[i].slice(0, 30)}... | 错误:`, e.message);
+      errorLines.push(`第 ${i+1} 行: 解析异常 - ${e.message}`);
     }
   }
   return allJobs;

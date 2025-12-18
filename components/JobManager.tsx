@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Database, Trash2, Zap, Sparkles, Lightbulb, ExternalLink, Lock, AlertTriangle } from './Icons';
+import { Database, Trash2, Zap, Sparkles, Lightbulb, ExternalLink, Lock, AlertTriangle, Filter } from './Icons';
 import { Job } from '../types';
 import { jobService } from '../services/jobService';
 import { parseSmartJobs } from '../services/aiService';
@@ -18,6 +18,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
   const [pasteContent, setPasteContent] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [parsingErrors, setParsingErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
 
@@ -30,22 +31,24 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
     }
 
     setIsLoading(true);
-    setStatus("AI 引擎正在逐行扫描数据...");
+    setStatus("AI 正在深度识别格式并拆分岗位...");
     setErrorMsg(null);
+    setParsingErrors([]);
     setProgress({ current: 0, total: 0 });
 
     try {
-        const aiJobs = await parseSmartJobs(pasteContent, (current, total) => {
+        const aiJobs = await parseSmartJobs(pasteContent, (current, total, errors) => {
             setProgress({ current, total });
-            setStatus(`正在解析第 ${current} 条企业信息，共 ${total} 条...`);
+            if (errors) setParsingErrors([...errors]);
+            setStatus(`正在分析: ${current} / ${total}...`);
         });
         
         if (!aiJobs || aiJobs.length === 0) {
-            throw new Error("未能识别到有效岗位。请确保文本包含 '|' 分隔符，例如：公司 | 岗位A, 岗位B | 地点 | 链接");
+            throw new Error("未能提取到有效岗位。请检查：\n1. 是否使用了 | 或 丨 分隔符\n2. 字段数是否为 4 个或 5 个\n3. 公司和链接是否填写完整");
         }
 
         if (shouldClear) {
-            setStatus("正在清理旧数据...");
+            setStatus("正在清理云端旧数据...");
             await jobService.clearAll();
         }
 
@@ -60,20 +63,20 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
             updateTime: new Date().toISOString().split('T')[0]
         }));
 
-        setStatus(`正在将解析出的 ${formattedJobs.length} 个岗位同步至云端...`);
+        setStatus(`正在同步 ${formattedJobs.length} 个岗位...`);
         const result = await jobService.bulkInsert(formattedJobs);
         
         if (result.success) {
             setStatus(null);
-            alert(`✅ 处理成功！\n共从文本中拆分出 ${formattedJobs.length} 个独立岗位并同步。`);
+            const errorCount = parsingErrors.length;
+            alert(`✅ 同步完成！\n成功识别并拆分出 ${formattedJobs.length} 个岗位。\n${errorCount > 0 ? `⚠️ 注意：有 ${errorCount} 行解析失败，请查看下方列表。` : ''}`);
             setPasteContent('');
             const allJobs = await jobService.fetchAll();
             onUpdate(allJobs);
         } else {
-            setErrorMsg(`数据库同步失败: ${result.message}`);
+            setErrorMsg(`同步至数据库时出错: ${result.message}`);
         }
     } catch (e: any) {
-        console.error("Critical Error:", e);
         setErrorMsg(e.message);
     } finally {
         setIsLoading(false);
@@ -104,14 +107,14 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
           </div>
           <div>
             <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-              岗位数据库管理控制台
-              {isLoading && <span className="text-[10px] text-blue-500 animate-pulse ml-2 font-mono">SYSTEM PROCESSING...</span>}
+              岗位库管理控制台
+              {isLoading && <span className="text-[10px] text-blue-500 animate-pulse ml-2 font-mono">AI PROCESSING...</span>}
             </h3>
-            <p className="text-[10px] text-gray-600 font-mono">当前云端库容: {jobs.length} 条有效岗位</p>
+            <p className="text-[10px] text-gray-600 font-mono">云端岗位存量: {jobs.length}</p>
           </div>
         </div>
         <button className="px-3 py-1 text-xs text-gray-500 hover:text-white transition-colors font-medium border border-gray-800 rounded">
-          {isOpen ? '收起面板' : '展开面板'}
+          {isOpen ? '隐藏面板' : '管理数据'}
         </button>
       </div>
 
@@ -122,27 +125,30 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div className="bg-blue-900/10 border border-blue-900/20 rounded-lg p-4">
                    <div className="flex items-center gap-2 mb-1">
-                      <Zap className="w-3 h-3 text-blue-400" />
-                      <span className="text-[11px] font-bold text-blue-400 uppercase">逐行扫描模式</span>
+                      <Filter className="w-3 h-3 text-blue-400" />
+                      <span className="text-[11px] font-bold text-blue-400 uppercase">格式支持说明</span>
                    </div>
-                   <p className="text-[10px] text-gray-400 leading-relaxed">
-                     针对超长岗位列表优化的扫描引擎。即使一行内包含 50 个岗位，AI 也能确保 100% 拆分且不丢失。
-                   </p>
+                   <ul className="text-[10px] text-gray-400 space-y-1 mt-2 list-disc list-inside">
+                     <li>分隔符：支持 <code className="text-white px-1">|</code> 或 <code className="text-white px-1">丨</code></li>
+                     <li>4字段：公司 | 岗位(池) | 地点 | 链接</li>
+                     <li>5字段：行业 | 公司 | 岗位(池) | 地点 | 链接</li>
+                     <li>必填：<span className="text-blue-300">公司</span> 和 <span className="text-blue-300">链接</span> 不能为空</li>
+                   </ul>
                 </div>
                 <div className="bg-orange-900/10 border border-orange-900/20 rounded-lg p-4">
                    <div className="flex items-center gap-2 mb-1">
                       <Sparkles className="w-3 h-3 text-orange-400" />
-                      <span className="text-[11px] font-bold text-orange-400 uppercase">DEEPSEEK V3 驱动</span>
+                      <span className="text-[11px] font-bold text-orange-400 uppercase">智能拆分逻辑</span>
                    </div>
-                   <p className="text-[10px] text-gray-400 leading-relaxed">
-                     采用 DeepSeek JSON 模式进行结构化输出，确保数据清洗的严谨性。
+                   <p className="text-[10px] text-gray-400 leading-relaxed mt-2">
+                     AI 会自动分析字段数量。若“岗位池”中存在多个用逗号、空格或顿号分隔的岗位，系统会自动拆分为多条独立数据。
                    </p>
                 </div>
               </div>
 
               <textarea
                 className="w-full h-64 bg-black border border-[#333] rounded-lg p-4 text-xs font-mono text-gray-300 focus:border-blue-600 focus:outline-none resize-none custom-scrollbar mb-4 transition-all"
-                placeholder="在此粘贴包含管道符的原始文本..."
+                placeholder="直接粘贴原始文本。示例：&#10;互联网 | 腾讯 | 前端, 后端, 产品 | 深圳 | https://join.qq.com&#10;阿里巴巴 | 运营, 销售 | 杭州 | https://talent.alibaba.com"
                 value={pasteContent}
                 onChange={(e) => setPasteContent(e.target.value)}
               />
@@ -153,7 +159,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                   disabled={isLoading}
                   className="flex items-center gap-2 px-6 py-2.5 bg-white text-black hover:bg-blue-500 hover:text-white rounded-lg text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  一键清空并同步
+                  清空并重新导入
                 </button>
 
                 <button 
@@ -161,7 +167,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                   disabled={isLoading}
                   className="flex items-center gap-2 px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  增量追加岗位
+                  增量追加数据
                 </button>
 
                 <button 
@@ -170,22 +176,44 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                   className="flex items-center gap-2 px-4 py-2.5 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white text-xs font-bold transition-all rounded-lg"
                 >
                   <Trash2 className="w-4 h-4" />
-                  清空库
+                  彻底清空
                 </button>
               </div>
 
-              {(status || errorMsg) && (
-                <div className={`mt-4 p-4 border rounded-lg animate-in fade-in duration-300 ${errorMsg ? 'bg-red-900/10 border-red-900/30' : 'bg-blue-900/10 border-blue-900/30'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[11px] font-bold flex items-center gap-2 ${errorMsg ? 'text-red-400' : 'text-blue-400'}`}>
-                      {errorMsg ? <AlertTriangle className="w-3 h-3" /> : <Zap className="w-3 h-3 animate-pulse" />}
-                      {errorMsg ? '解析终止' : 'AI 引擎处理中'}
-                    </span>
-                    {progress.total > 0 && <span className="text-[10px] font-mono text-gray-500">{progress.current} / {progress.total}</span>}
-                  </div>
-                  <div className={`text-[11px] font-mono leading-relaxed whitespace-pre-wrap ${errorMsg ? 'text-red-300' : 'text-gray-400'}`}>
-                    {errorMsg || status}
-                  </div>
+              {(status || errorMsg || parsingErrors.length > 0) && (
+                <div className="mt-4 space-y-3">
+                  {status && !errorMsg && (
+                    <div className="p-3 bg-blue-900/10 border border-blue-900/30 rounded-lg flex items-center justify-between">
+                      <span className="text-[11px] text-blue-400 font-bold flex items-center gap-2">
+                        <Zap className="w-3 h-3 animate-pulse" /> {status}
+                      </span>
+                      <span className="text-[10px] font-mono text-gray-500">{progress.current} / {progress.total}</span>
+                    </div>
+                  )}
+
+                  {errorMsg && (
+                    <div className="p-4 bg-red-900/10 border border-red-900/30 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-400 font-bold text-xs mb-1">
+                        <AlertTriangle className="w-4 h-4" /> 全局解析错误
+                      </div>
+                      <p className="text-[11px] text-red-300 font-mono whitespace-pre-wrap">{errorMsg}</p>
+                    </div>
+                  )}
+
+                  {parsingErrors.length > 0 && (
+                    <div className="p-4 bg-orange-900/5 border border-orange-900/20 rounded-lg">
+                      <div className="flex items-center gap-2 text-orange-400 font-bold text-xs mb-2">
+                        <AlertTriangle className="w-4 h-4" /> 局部行解析失败 ({parsingErrors.length})
+                      </div>
+                      <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1">
+                        {parsingErrors.map((err, i) => (
+                          <div key={i} className="text-[10px] text-gray-500 font-mono border-l border-orange-900/30 pl-2 py-0.5">
+                            {err}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -194,7 +222,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                <div className="p-4 bg-gray-900/50 inline-block rounded-full mb-4">
                   <Lock className="w-8 h-8 text-gray-700" />
                </div>
-               <p className="text-sm text-gray-500 font-medium">管理员模式已锁定，当前仅供查看。</p>
+               <p className="text-sm text-gray-500 font-medium">管理员面板已锁定。</p>
             </div>
           )}
         </div>
