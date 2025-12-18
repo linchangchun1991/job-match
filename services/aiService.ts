@@ -1,5 +1,4 @@
-
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
 function stripMarkdown(str: string): string {
@@ -9,6 +8,7 @@ function stripMarkdown(str: string): string {
 
 /**
  * 核心解析函数 - 猎头 & ATS 专家
+ * 使用 gemini-3-flash-preview 进行快速提取
  */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -48,7 +48,7 @@ JSON 结构：
       config: {
         systemInstruction,
         responseMimeType: "application/json",
-        temperature: 0.1 // 解析需要准确性
+        temperature: 0.1
       }
     });
 
@@ -71,6 +71,7 @@ JSON 结构：
 
 /**
  * 增强版匹配函数 - 追求广度与多样性
+ * 使用 gemini-3-pro-preview 处理复杂推理任务
  */
 export const matchJobs = async (
   resume: ParsedResume, 
@@ -78,7 +79,8 @@ export const matchJobs = async (
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const validJobs = jobs.filter(j => j.company && j.title).slice(0, 200); 
+  // 限制匹配池大小以确保速度和上下文限制
+  const validJobs = jobs.filter(j => j.company && j.title).slice(0, 150); 
   if (validJobs.length === 0) return [];
 
   // 注入随机因子
@@ -91,8 +93,9 @@ export const matchJobs = async (
 1. 广度挖掘：不要只看职位名称，要看技能底层逻辑。如果他是React开发者，也可以推荐泛前端或全栈岗。
 2. 推荐金句：为每个岗位写一句富有洞察力的“顶级教练推荐语”（约30字），点出候选人为什么该去，以及他的核心优势。
 3. 容错率：只要有 50% 以上相关性即可列入名单，确保候选人有足够的选择。
+4. 多样性：每次返回的结果应具有一定的探索性。
 
-返回 JSON 格式: 
+必须返回 JSON 格式: 
 { 
   "matches": [
     { 
@@ -111,12 +114,13 @@ export const matchJobs = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: userPrompt,
       config: {
         systemInstruction,
         responseMimeType: "application/json",
-        temperature: 0.9 // 提高随机性，确保每次上传有不同惊喜
+        temperature: 0.9,
+        thinkingConfig: { thinkingBudget: 16384 }
       }
     });
 
@@ -161,9 +165,9 @@ export const parseSmartJobs = async (
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `解析岗位：\n${chunks[i]}`,
+        contents: `解析岗位内容，提取为 JSON 数组：\n${chunks[i]}`,
         config: { 
-          systemInstruction: "提取 company, title, location, link。返回 JSON 数组。",
+          systemInstruction: "提取 company, title, location, link。严禁返回非 JSON 内容。",
           responseMimeType: "application/json"
         }
       });

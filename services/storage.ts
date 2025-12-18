@@ -5,7 +5,8 @@ const KEYS = {
   HISTORY: 'careermatch_history',
   SESSIONS: 'careermatch_sessions',
   SUPABASE_URL: 'careermatch_supabase_url',
-  SUPABASE_KEY: 'careermatch_supabase_key'
+  SUPABASE_KEY: 'careermatch_supabase_key',
+  QWEN_KEY: 'careermatch_qwen_key'
 };
 
 // Hardcoded Supabase keys fallback
@@ -68,5 +69,8 @@ export const storage = {
   setSupabaseConfig: (url: string, key: string) => {
     localStorage.setItem(KEYS.SUPABASE_URL, url.trim());
     localStorage.setItem(KEYS.SUPABASE_KEY, key.trim());
-  }
+  },
+
+  getQwenKey: () => localStorage.getItem(KEYS.QWEN_KEY) || '',
+  setQwenKey: (key: string) => localStorage.setItem(KEYS.QWEN_KEY, key.trim())
 };
