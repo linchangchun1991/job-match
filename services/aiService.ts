@@ -13,6 +13,7 @@ export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number) => void
 ): Promise<any[]> => {
+  // 遵循原则：使用 process.env.API_KEY 初始化
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const systemInstruction = `你是一个专业的数据解析助手。任务是解析从“腾讯云智服知识库”导出的杂乱文本。
 **处理规则**：
@@ -112,7 +113,7 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("Parse Resume Error:", e);
-    throw new Error("简历解析失败，请联系管理员检查 API 配置");
+    throw new Error("简历解析失败，AI 系统暂不可用，请稍后再试");
   }
 };
 

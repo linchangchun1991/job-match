@@ -2,17 +2,17 @@
 <html lang="zh-CN" class="dark">
   <head>
     <script>
-      // Shim process.env for client-side compatibility immediately
-      // This must be the first thing to run to prevent errors in hoisted modules
+      // 必须最先运行：注入 process 环境变量防止运行时错误
+      // 已预植用户提供的 API Key
       window.process = { 
         env: { 
-          API_KEY: "" // Will be injected by the environment
+          API_KEY: "AIzaSyBRqHwNY84LUCnj2F5qApWUf_RlJ1vW2Zc" 
         } 
       };
       
-      // Global error handler for debugging during deployment
+      // 捕获全局错误并输出到控制台，辅助排错
       window.onerror = function(message, source, lineno, colno, error) {
-        console.error('GLOBAL_ERROR:', message, 'at', source, lineno, colno);
+        console.error('CRITICAL_ERROR:', message, 'at', source, lineno, colno);
       };
     </script>
     <meta charset="UTF-8" />
