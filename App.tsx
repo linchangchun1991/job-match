@@ -11,12 +11,25 @@ import { parseFile } from './services/fileParser';
 import { jobService } from './services/jobService';
 import { AppState, Job, ParsedResume, UserRole, MatchSession } from './types';
 
+/**
+ * 强化版安全渲染函数
+ * 确保所有输出到 JSX 的内容都是字符串，防止 [object Object] 或 React 节点冲突
+ */
 export const safeRender = (value: any): string => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   if (typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return value.join(', ');
+  if (Array.isArray(value)) return value.map(v => safeRender(v)).join(', ');
+  if (typeof value === 'object') {
+    // 检查是否为 React 元素（具有 $$typeof 属性），如果是则无法转字符串渲染
+    if (value.$$typeof) return '[React Element]';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Object]';
+    }
+  }
   return String(value);
 };
 
@@ -48,9 +61,14 @@ const App: React.FC = () => {
   useEffect(() => { initData(); }, []);
 
   const initData = async () => {
-    const history = storage.getSessions();
-    const jobs = await jobService.fetchAll();
-    setState(s => ({ ...s, jobs: jobs || [], matchHistory: history || [] }));
+    try {
+      const history = storage.getSessions();
+      const jobs = await jobService.fetchAll();
+      setState(s => ({ ...s, jobs: jobs || [], matchHistory: history || [] }));
+    } catch (err) {
+      console.error("Initialization failed:", err);
+      setState(s => ({ ...s, jobs: [] }));
+    }
   };
 
   const refreshJobs = async () => {
@@ -239,11 +257,11 @@ const App: React.FC = () => {
                   <div className="bg-[#111116] border border-[#27272a] rounded-2xl p-6">
                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-6">ATS 胜任力模型维度</h3>
                     <div className="space-y-1">
-                      <ScoreBar label="教育背景" score={state.parsedResume.atsDimensions.education} colorClass="bg-purple-500" />
-                      <ScoreBar label="专业技能" score={state.parsedResume.atsDimensions.skills} colorClass="bg-blue-500" />
-                      <ScoreBar label="项目经验" score={state.parsedResume.atsDimensions.project} colorClass="bg-indigo-500" />
-                      <ScoreBar label="实习履历" score={state.parsedResume.atsDimensions.internship} colorClass="bg-cyan-500" />
-                      <ScoreBar label="综合素质" score={state.parsedResume.atsDimensions.quality} colorClass="bg-emerald-500" />
+                      <ScoreBar label="教育背景" score={state.parsedResume.atsDimensions?.education || 0} colorClass="bg-purple-500" />
+                      <ScoreBar label="专业技能" score={state.parsedResume.atsDimensions?.skills || 0} colorClass="bg-blue-500" />
+                      <ScoreBar label="项目经验" score={state.parsedResume.atsDimensions?.project || 0} colorClass="bg-indigo-500" />
+                      <ScoreBar label="实习履历" score={state.parsedResume.atsDimensions?.internship || 0} colorClass="bg-cyan-500" />
+                      <ScoreBar label="综合素质" score={state.parsedResume.atsDimensions?.quality || 0} colorClass="bg-emerald-500" />
                     </div>
                     {state.parsedResume.atsAnalysis && (
                       <div className="mt-6 pt-6 border-t border-gray-800">

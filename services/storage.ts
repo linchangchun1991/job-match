@@ -9,10 +9,6 @@ const KEYS = {
   QWEN_KEY: 'careermatch_qwen_key'
 };
 
-// Hardcoded Supabase keys fallback
-const PRESET_SUPABASE_URL = 'https://axxatrqqfhscokyutnla.supabase.co';
-const PRESET_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4eGF0cnFxZmhzY29reXV0bmxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2OTgwNzEsImV4cCI6MjA4MTI3NDA3MX0.5BBt8TsEEG1FLZ2r3iNhDQEj_yyrQN2bJ7KTNIZWaJk';
-
 export const storage = {
   getJobs: (): Job[] => {
     try {
@@ -23,15 +19,6 @@ export const storage = {
   },
   setJobs: (jobs: Job[]) => localStorage.setItem(KEYS.JOBS, JSON.stringify(jobs)),
   
-  getHistory: (): MatchResult[] => {
-    try {
-      return JSON.parse(localStorage.getItem(KEYS.HISTORY) || '[]');
-    } catch {
-      return [];
-    }
-  },
-  saveHistory: (results: MatchResult[]) => localStorage.setItem(KEYS.HISTORY, JSON.stringify(results)),
-
   getSessions: (): MatchSession[] => {
     try {
       const data = localStorage.getItem(KEYS.SESSIONS);
@@ -52,20 +39,12 @@ export const storage = {
   },
 
   getSupabaseConfig: () => {
-    let url = localStorage.getItem(KEYS.SUPABASE_URL);
-    let key = localStorage.getItem(KEYS.SUPABASE_KEY);
-
-    if (!url) {
-        url = PRESET_SUPABASE_URL;
-        localStorage.setItem(KEYS.SUPABASE_URL, url);
-    }
-    if (!key) {
-        key = PRESET_SUPABASE_KEY;
-        localStorage.setItem(KEYS.SUPABASE_KEY, key);
-    }
-
+    // 强制去除首尾空格
+    const url = (localStorage.getItem(KEYS.SUPABASE_URL) || "").trim();
+    const key = (localStorage.getItem(KEYS.SUPABASE_KEY) || "").trim();
     return { url, key };
   },
+  
   setSupabaseConfig: (url: string, key: string) => {
     localStorage.setItem(KEYS.SUPABASE_URL, url.trim());
     localStorage.setItem(KEYS.SUPABASE_KEY, key.trim());

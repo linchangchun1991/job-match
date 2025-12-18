@@ -1,4 +1,3 @@
-
 import { getSupabase, isCloudEnabled } from './supabase';
 import { Job } from '../types';
 import { storage } from './storage';
@@ -15,36 +14,15 @@ interface ClearResult {
   message: string;
 }
 
-/**
- * 核心修复：彻底解决 [object Object] 问题
- * 确保任何输入都能转化为人类可读的字符串
- */
 const formatError = (error: any): string => {
   if (!error) return '未知错误';
   if (typeof error === 'string') return error;
-  
-  // 1. 尝试从 Supabase 标准错误结构中提取
   const message = error.message || error.error_description || error.details;
   const hint = error.hint ? ` (提示: ${error.hint})` : '';
   const code = error.code ? ` [错误码: ${error.code}]` : '';
-
-  if (message) {
-    return `${typeof message === 'object' ? JSON.stringify(message) : message}${hint}${code}`;
-  }
-
-  // 2. 尝试从原生 Error 对象中提取
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  // 3. 最后的兜底：强制序列化
-  try {
-    const stringified = JSON.stringify(error);
-    if (stringified === '{}') return error.toString() || '无法解析的错误对象';
-    return stringified;
-  } catch (e) {
-    return '系统发生异常，且无法解析错误详情';
-  }
+  if (message) return `${typeof message === 'object' ? JSON.stringify(message) : message}${hint}${code}`;
+  if (error instanceof Error) return error.message;
+  return JSON.stringify(error);
 };
 
 const extractMetadata = (item: any) => {
@@ -74,28 +52,44 @@ const extractMetadata = (item: any) => {
 export const jobService = {
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
-    if (!supabase) return storage.getJobs();
+    if (!supabase) {
+      console.warn("Supabase not configured, using local storage.");
+      return storage.getJobs();
+    }
     
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (error) return [];
-    
-    return (data || []).map((item: any) => {
-        const meta = extractMetadata(item);
-        return {
-            id: String(item.id),
-            company: (item.company || '未知公司').trim(),
-            location: (meta.location || item.location || '全国').trim(), 
-            type: meta.type,
-            requirement: meta.requirement,
-            title: (item.title || '通用岗').trim(),
-            updateTime: meta.updateTime,
-            link: meta.link || item.link 
-        };
-    });
+      if (error) {
+        console.error("Supabase fetch error:", error);
+        return storage.getJobs();
+      }
+      
+      if (!data || data.length === 0) {
+        console.info("Supabase table 'jobs' is empty.");
+        return [];
+      }
+
+      return data.map((item: any) => {
+          const meta = extractMetadata(item);
+          return {
+              id: String(item.id),
+              company: (item.company || '未知公司').trim(),
+              location: (meta.location || item.location || '全国').trim(), 
+              type: meta.type,
+              requirement: meta.requirement,
+              title: (item.title || '通用岗').trim(),
+              updateTime: meta.updateTime,
+              link: meta.link || item.link 
+          };
+      });
+    } catch (e) {
+      console.error("Critical error fetching from Supabase:", e);
+      return storage.getJobs();
+    }
   },
 
   bulkInsert: async (jobs: Job[]): Promise<UploadResult> => {
@@ -132,23 +126,16 @@ export const jobService = {
     }
 
     try {
-      /**
-       * 修复核心：
-       * 之前使用 UUID 字符串导致 bigint 类型的 ID 报错。
-       * 改用 .gt('id', 0) 或 .neq('id', -1)，这两个条件对数字类型 ID 始终有效，
-       * 且能成功触发 Supabase 的全表删除逻辑。
-       */
       const { error, count } = await supabase
         .from('jobs')
         .delete({ count: 'exact' })
-        .gt('id', -1); // 兼容 bigint 和 UUID，因为 ID 肯定大于 -1
+        .gt('id', -1);
 
       if (error) {
-        // 如果 gt 还是报错（极少数 UUID 情况），尝试使用不等于一个不可能的数字
         const { error: retryError, count: retryCount } = await supabase
           .from('jobs')
           .delete({ count: 'exact' })
-          .neq('company', 'THIS_WILL_NEVER_MATCH_ANYTHING_12345');
+          .neq('company', 'FORCE_DELETE_ALL_SHIFTS_123');
         
         if (retryError) return { success: false, message: formatError(retryError) };
         return { success: true, message: `已从云端移除 ${retryCount || 0} 条岗位` };
