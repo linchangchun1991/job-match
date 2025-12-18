@@ -2,19 +2,23 @@
 <html lang="zh-CN" class="dark">
   <head>
     <script>
-      // Initialize environment before anything else
+      // 必须在所有脚本之前初始化全局环境变量
       window.process = { 
         env: { 
           API_KEY: "AIzaSyBRqHwNY84LUCnj2F5qApWUf_RlJ1vW2Zc" 
         } 
       };
       
-      // Global error tracking
+      // 全局错误捕获，方便调试黑屏
       window.onerror = function(message, source, lineno, colno, error) {
-        console.error('GLOBAL_ERROR:', message, 'at', source, lineno, colno);
+        console.error('CRITICAL_ERROR:', message);
         const root = document.getElementById('root');
         if (root && root.innerHTML === '') {
-          root.innerHTML = '<div style="color: white; padding: 20px; font-family: sans-serif;"><h1>应用启动失败</h1><p>' + message + '</p><button onclick="location.reload()" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">重试</button></div>';
+          root.innerHTML = `<div style="color: white; padding: 40px; font-family: sans-serif; text-align: center;">
+            <h1 style="color: #ef4444;">应用启动失败</h1>
+            <p style="color: #9ca3af;">${message}</p>
+            <button onclick="location.reload()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 20px;">重试加载</button>
+          </div>`;
         }
       };
     </script>
@@ -23,6 +27,7 @@
     <title>HIGHMARK CAREER MATCH PRO</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 基础外部库保持 CDN 加载（非 React 核心库） -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -67,41 +72,25 @@
       #root {
         min-height: 100vh;
       }
-      .custom-scrollbar::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-track {
-        background: #111116;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: #333;
-        border-radius: 3px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: #444;
-      }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
-    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
-    "lucide-react": "https://esm.sh/lucide-react@0.344.0?external=react",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.0",
+    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "vite": "https://esm.sh/vite@^7.3.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.88.0"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+    <!-- Vite 模式下，src 路径必须准确指向入口文件 -->
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
