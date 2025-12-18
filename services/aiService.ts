@@ -2,8 +2,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-// Strictly follow initialization rules: new GoogleGenAI({ apiKey: process.env.API_KEY })
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Initialize AI safely. 
+ * Note: Guidelines require const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+ * We ensure process.env exists via index.html shim to prevent module-level crash.
+ */
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 function stripMarkdown(str: string): string {
   if (!str) return "";
@@ -111,7 +115,7 @@ export const parseResume = async (apiKey: string, text: string): Promise<ParsedR
       }
     });
 
-    const cleaned = stripMarkdown(response.text);
+    const cleaned = stripMarkdown(response.text || '');
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("Parse Resume Error:", e);
@@ -146,7 +150,7 @@ export const matchJobs = async (
       }
     });
 
-    const cleaned = stripMarkdown(response.text);
+    const cleaned = stripMarkdown(response.text || '');
     const parsed = JSON.parse(cleaned);
     const list = parsed.matches || parsed;
 
