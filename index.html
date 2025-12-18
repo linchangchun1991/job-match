@@ -2,11 +2,15 @@
 <html lang="zh-CN" class="dark">
   <head>
     <script>
-      // 这里的 API_KEY 是 Gemini 的 Key。注意：您之前填写的 sk-... 是 DeepSeek 的 Key，无法在 Google SDK 中使用。
-      // 请确保 process.env.API_KEY 指向的是有效的 Gemini API Key。
+      /**
+       * 注入全局环境变量
+       * 注意：此 Key 为 DeepSeek Key。
+       * 警告：@google/genai SDK 原生仅支持 Google Gemini API。
+       * 如果此 Key 依然导致认证错误，请确保在系统中使用的是 Google Gemini 的 API Key (AIzaSy 开头)。
+       */
       window.process = { 
         env: { 
-          API_KEY: "AIzaSy..." // 请在此处填入您的 Google Gemini API Key
+          API_KEY: "sk-eff2fc508ebb413bb1e30287c6ea1823" 
         } 
       };
       
