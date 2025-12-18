@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, FileText, User, Upload, BarChart3, Clock, LogOut, Sparkles, User as UserIcon, Zap } from './components/Icons';
 import SettingsModal from './components/SettingsModal';
@@ -91,7 +90,7 @@ const App: React.FC = () => {
     try {
       const parsed = await parseResume(state.currentResume);
       setProgress(50);
-      setLoadingStep('正在从 200+ 岗位库中挖掘匹配项...');
+      setLoadingStep('正在从全量库挖掘匹配项...');
       
       setState(s => ({ ...s, parsedResume: parsed, isAnalyzing: false, isMatching: true }));
       
@@ -101,7 +100,7 @@ const App: React.FC = () => {
       });
       
       setProgress(100);
-      setLoadingStep('匹配完成！已为您生成 20+ 个适配岗位');
+      setLoadingStep('专家级匹配已完成');
 
       const newSession: MatchSession = { 
         id: Date.now().toString(), 
@@ -119,7 +118,7 @@ const App: React.FC = () => {
         setProgress(0);
       }, 2000);
     } catch (error: any) {
-      alert(error.message);
+      alert("错误: " + error.message);
       setState(s => ({ ...s, isAnalyzing: false, isMatching: false }));
       setLoadingStep('');
       setProgress(0);
@@ -195,17 +194,17 @@ const App: React.FC = () => {
                 <button 
                   onClick={handleStartAnalysis}
                   disabled={state.isAnalyzing || state.isMatching}
-                  className="w-full py-4 bg-white text-black rounded-xl font-bold text-sm hover:bg-blue-500 hover:text-white transition-all flex items-center justify-center gap-2 disabled:opacity-50 relative overflow-hidden"
+                  className="w-full py-4 bg-white text-black rounded-xl font-bold text-sm hover:bg-blue-500 hover:text-white transition-all flex items-center justify-center gap-2 disabled:opacity-50 relative overflow-hidden shadow-2xl"
                 >
                   <span className="relative z-10 flex items-center gap-2">
                     {state.isAnalyzing || state.isMatching ? (
-                      <><Zap className="w-4 h-4 animate-spin" /> {loadingStep || '正在工作...'}</>
+                      <><Zap className="w-4 h-4 animate-spin text-blue-600" /> {loadingStep || '正在工作...'}</>
                     ) : (
                       <><Sparkles className="w-4 h-4" /> 开始猎头级智能匹配</>
                     )}
                   </span>
                   { (state.isAnalyzing || state.isMatching) && (
-                    <div className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                    <div className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
                   )}
                 </button>
               </div>

@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
 function stripMarkdown(str: string): string {
@@ -8,7 +8,6 @@ function stripMarkdown(str: string): string {
 
 /**
  * 核心解析函数 - 猎头 & ATS 专家
- * 使用 gemini-3-flash-preview 进行快速提取
  */
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -65,13 +64,12 @@ JSON 结构：
     };
   } catch (e) {
     console.error("Parse Resume Error:", e);
-    throw new Error("简历解析失败，请检查网络或格式。");
+    throw new Error("简历解析失败：无法获取 API Key 或服务器无响应。");
   }
 };
 
 /**
  * 增强版匹配函数 - 追求广度与多样性
- * 使用 gemini-3-pro-preview 处理复杂推理任务
  */
 export const matchJobs = async (
   resume: ParsedResume, 
@@ -79,37 +77,25 @@ export const matchJobs = async (
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // 限制匹配池大小以确保速度和上下文限制
+  // 增加匹配池到 150 以获取更多可能性
   const validJobs = jobs.filter(j => j.company && j.title).slice(0, 150); 
   if (validJobs.length === 0) return [];
 
   // 注入随机因子
   const randomSalt = Math.random().toString(36).substring(7);
 
-  const systemInstruction = `你是一位拥有10年经验的顶级职业规划师与资深猎头。
-任务：根据候选人简历，从库中挖掘【至少 20-30 个】适配岗位。
+  const systemInstruction = `你是一位顶级职业规划师与资深猎头。
+任务：根据候选人简历，从库中深度挖掘【至少 20-30 个】适配岗位。
 
-匹配哲学：
-1. 广度挖掘：不要只看职位名称，要看技能底层逻辑。如果他是React开发者，也可以推荐泛前端或全栈岗。
-2. 推荐金句：为每个岗位写一句富有洞察力的“顶级教练推荐语”（约30字），点出候选人为什么该去，以及他的核心优势。
-3. 容错率：只要有 50% 以上相关性即可列入名单，确保候选人有足够的选择。
-4. 多样性：每次返回的结果应具有一定的探索性。
-
-必须返回 JSON 格式: 
-{ 
-  "matches": [
-    { 
-      "i": 岗位索引, 
-      "s": 匹配分(60-100), 
-      "reasons": ["理由"], 
-      "coach_advice": "这一句顶级教练推荐语" 
-    }
-  ] 
-}`;
+要求：
+1. 多样性：不要局限于单一岗位名称，进行语义关联（如 React 开发者可匹配前端岗、全栈岗）。
+2. 随机探索：每次匹配请尝试从不同角度切入，推荐一些具有挑战性或跨行业的潜力岗位。
+3. 教练金句：为每个岗位生成一句富有人格魅力的“顶级教练推荐语”，用于指导投递。
+4. 必须返回 JSON: { "matches": [{ "i": 索引, "s": 匹配分(60-100), "reasons": ["理由"], "coach_advice": "推荐金句" }] }`;
 
   const userPrompt = `
-随机校验码: ${randomSalt}
-候选人：${resume.name} | 领域：${resume.coreDomain} | 资历：${resume.seniorityLevel} | 核心技能：${resume.skills.join(', ')}
+随机标识符: ${randomSalt}
+候选人：${resume.name} | 技能：${resume.skills.join(', ')} | 意向：${resume.jobPreference}
 职位库：${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title, l: j.location })))}`;
 
   try {
@@ -119,8 +105,8 @@ export const matchJobs = async (
       config: {
         systemInstruction,
         responseMimeType: "application/json",
-        temperature: 0.9,
-        thinkingConfig: { thinkingBudget: 16384 }
+        temperature: 0.95, // 极高随机性确保每次上传结果不同
+        thinkingConfig: { thinkingBudget: 4096 }
       }
     });
 
@@ -136,7 +122,7 @@ export const matchJobs = async (
         score: m.s,
         matchReasons: m.reasons || [],
         mismatchReasons: [],
-        recommendation: m.coach_advice || '该岗位与你的职业发展路径高度契合，建议尝试。',
+        recommendation: m.coach_advice || '作为你的职业教练，我非常看好这个机会，它的底层架构非常适合你的技术成长。',
         tips: '',
         job: job
       };
@@ -165,9 +151,9 @@ export const parseSmartJobs = async (
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `解析岗位内容，提取为 JSON 数组：\n${chunks[i]}`,
+        contents: `提取 JSON 岗位数组：\n${chunks[i]}`,
         config: { 
-          systemInstruction: "提取 company, title, location, link。严禁返回非 JSON 内容。",
+          systemInstruction: "提取 company, title, location, link。返回 JSON。",
           responseMimeType: "application/json"
         }
       });
