@@ -28,8 +28,10 @@ export const jobService = {
     
     try {
       // 适配 PostgREST 的查询语法：按 ID 倒序
+      // 增加 mode: 'cors' 确保跨域请求正常
       const response = await fetch(`${baseUrl}/jobs?order=id.desc`, {
         method: 'GET',
+        mode: 'cors', 
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
@@ -37,12 +39,12 @@ export const jobService = {
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        throw new Error(`Server Error: ${response.status}`);
       }
 
       const data = await response.json();
       
-      return (data || []).map((item: any) => ({
+      const remoteJobs = (data || []).map((item: any) => ({
         id: String(item.id),
         company: item.company || '未知公司',
         title: item.title || '招聘岗位',
@@ -52,8 +54,14 @@ export const jobService = {
         updateTime: item.created_at?.split('T')[0] || '',
         type: item.type || ''
       }));
+
+      // 如果成功获取了云端数据，顺便更新本地缓存，这样下次断网也能看
+      storage.setJobs(remoteJobs);
+      return remoteJobs;
+
     } catch (e: any) {
       console.error("Fetch failed, falling back to local:", e);
+      // 网络失败时，静默降级到本地数据
       return storage.getJobs();
     }
   },
@@ -62,10 +70,11 @@ export const jobService = {
     const baseUrl = getApiUrl();
     
     if (!baseUrl) {
+      // 离线模式：只存本地
       const existing = storage.getJobs();
       const updated = [...jobs, ...existing].slice(0, 1000);
       storage.setJobs(updated);
-      return { success: true, message: "⚠️ 离线模式：已存入本地浏览器缓存", count: jobs.length };
+      return { success: true, message: "⚠️ 离线模式：已存入本地浏览器缓存（未同步到云端）", count: jobs.length };
     }
 
     try {
@@ -80,6 +89,7 @@ export const jobService = {
 
       const response = await fetch(`${baseUrl}/jobs`, {
         method: 'POST',
+        mode: 'cors',
         headers: {
           'Content-Type': 'application/json',
           'Prefer': 'return=representation' // 让 PostgREST 返回插入的数据
@@ -95,9 +105,9 @@ export const jobService = {
         return { success: false, message: `同步失败 (${response.status}): ${errText.slice(0, 100)}` };
       }
 
-      return { success: true, message: "🚀 云端同步成功！岗位已入库。", count: jobs.length };
+      return { success: true, message: "🚀 云端同步成功！所有教练可立即查看。", count: jobs.length };
     } catch (e: any) {
-      return { success: false, message: `网络异常: ${e.message}` };
+      return { success: false, message: `网络异常 (可能需要检查 CORS 或 VPN): ${e.message}` };
     }
   },
 
@@ -112,6 +122,7 @@ export const jobService = {
       // PostgREST 删除所有数据需要明确的条件，这里用 id > 0
       const response = await fetch(`${baseUrl}/jobs?id=gt.0`, {
         method: 'DELETE',
+        mode: 'cors',
         headers: {
             'Content-Type': 'application/json'
         }

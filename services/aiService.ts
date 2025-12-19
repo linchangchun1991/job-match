@@ -8,8 +8,15 @@ const getAIClient = () => {
   
   if (!apiKey) throw new Error("GEMINI_API_KEY 未配置，请联系系统管理员。");
   
-  // @ts-ignore: SDK 支持 baseUrl
-  return new GoogleGenAI({ apiKey, baseUrl });
+  // 关键：如果不传 baseUrl，SDK 默认连 googleapis.com，国内会挂。
+  // 用户必须在 Zeabur 设置 GEMINI_BASE_URL (例如: https://generativelanguage.googleapis.com 对应的代理地址)
+  // 或者使用第三方中转服务
+  const options: any = { apiKey };
+  if (baseUrl && baseUrl.startsWith('http')) {
+     options.baseUrl = baseUrl;
+  }
+
+  return new GoogleGenAI(options);
 };
 
 const cleanJsonResponse = (str: string): string => {
@@ -80,6 +87,9 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       tags: { degree: [], exp: [], skill: [], intent: [] }
     } as ParsedResume;
   } catch (e: any) {
+    if (e.message && e.message.includes('fetch')) {
+       throw new Error(`网络连接失败：请检查 GEMINI_BASE_URL 是否正确配置，或确认当前网络能否访问 Google API。`);
+    }
     throw new Error(`简历解析失败: ${e.message}`);
   }
 };
