@@ -12,14 +12,12 @@ interface SettingsModalProps {
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }) => {
   const [sbUrl, setSbUrl] = useState('');
   const [sbKey, setSbKey] = useState('');
-  const [apiKey, setApiKey] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       const sb = storage.getSupabaseConfig();
       setSbUrl(sb.url);
       setSbKey(sb.key);
-      setApiKey(storage.getApiKey());
     }
   }, [isOpen]);
 
@@ -38,7 +36,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
         </div>
 
         <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
-          {/* AI Providers Config */}
+          {/* AI Providers Config - Information only as per guidelines */}
           <div>
             <div className="flex items-center gap-2 mb-3">
                <Zap className="w-4 h-4 text-yellow-400" />
@@ -48,20 +46,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
             <div className="space-y-3">
               <div className="bg-blue-600/5 border border-blue-600/20 p-3 rounded-lg mb-2">
                 <p className="text-[10px] text-blue-400 font-bold mb-1">Gemini 3 Flash 尊享版</p>
-                <p className="text-[10px] text-gray-500 leading-relaxed italic">负责全系统的简历解析与智能匹配。推荐填入您自己的 API Key 以获得更稳定的性能。</p>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Gemini API Key</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="AIzaSy..."
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                {!apiKey && (
-                  <p className="text-[9px] text-red-400 mt-1 italic">请输入 API Key 以激活匹配功能</p>
-                )}
+                <p className="text-[10px] text-gray-500 leading-relaxed italic">系统使用由预配置环境变量提供的高性能 Gemini 模型进行简历解析与智能匹配。</p>
               </div>
             </div>
           </div>
@@ -101,7 +86,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
             <button
               onClick={() => {
                 storage.setSupabaseConfig(sbUrl, sbKey);
-                storage.setApiKey(apiKey);
                 onSave();
                 onClose();
               }}

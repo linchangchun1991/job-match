@@ -8,25 +8,33 @@ import { safeRender } from '../App';
 
 declare const XLSX: any;
 
+// Define the missing props interface to fix line 93 error
 interface MatchResultsProps {
   results: MatchResult[];
   candidateName: string;
 }
 
 const getCleanLink = (link?: any) => {
-  const cleanLink = safeRender(link);
-  if (!cleanLink || cleanLink === 'null' || cleanLink === 'undefined' || cleanLink === '[Complex Data]') return undefined;
-  let clean = cleanLink.trim();
-  if (!clean) return undefined;
-  if (!clean.startsWith('http') && !clean.startsWith('https')) {
-       if (clean.startsWith('www') || clean.includes('.')) clean = `https://${clean}`;
-       else return undefined; 
+  if (!link) return undefined;
+  let clean = String(link).trim();
+  if (clean === '' || clean === 'null' || clean === 'undefined') return undefined;
+  
+  // 补全协议头
+  if (!clean.startsWith('http')) {
+    if (clean.startsWith('www.')) {
+      clean = 'https://' + clean;
+    } else if (clean.includes('.') && clean.includes('/')) {
+      clean = 'https://' + clean;
+    } else {
+      return undefined;
+    }
   }
   return clean;
 };
 
 const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
-  const finalLink = getCleanLink(res.job.link);
+  // 直接从 res.job.link 获取，并经过清洗
+  const finalLink = getCleanLink(res.job?.link);
   const scoreColor = res.score >= 85 ? 'text-green-400' : res.score >= 75 ? 'text-blue-400' : 'text-yellow-500';
 
   return (
@@ -49,7 +57,6 @@ const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
          </span>
       </div>
 
-      {/* 教练金句 - 视觉突出 */}
       <div className="mb-4 bg-blue-600/5 border border-blue-600/20 rounded-lg p-3">
         <div className="flex items-start gap-2">
            <Lightbulb className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
@@ -72,15 +79,15 @@ const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
               href={finalLink} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-blue-900/20 active:scale-95 hover:shadow-blue-500/20"
+              className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-blue-900/20 active:scale-95"
             >
               立即投递
               <ExternalLink className="w-3 h-3" />
             </a>
           ) : (
-             <div className="flex items-center gap-2 px-4 py-2 bg-[#1a1a20] text-gray-600 text-xs font-medium rounded-lg border border-gray-800 cursor-not-allowed select-none" title="该岗位暂未收录直投链接">
+             <div className="flex items-center gap-2 px-4 py-2 bg-[#1a1a20] text-gray-600 text-[10px] font-bold rounded-lg border border-gray-800 cursor-help" title="该岗位录入时未包含直接投递链接">
                 <Ban className="w-3 h-3" />
-                暂无链接
+                链接未收录
              </div>
           )}
         </div>
@@ -89,21 +96,22 @@ const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
   );
 };
 
+// Fixed React.FC type parameter with the added interface
 const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) => {
   const [filterCity, setFilterCity] = useState<string>('all');
 
   const cities = useMemo(() => {
     const s = new Set<string>();
     results.forEach(r => {
-      const location = safeRender(r.job.location);
-      if (location) s.add(location.split(/[\s/-]/)[0]);
+      const location = safeRender(r.job?.location);
+      if (location && location !== '全国') s.add(location.split(/[|丨\s/-]/)[0]);
     });
     return Array.from(s).filter(Boolean);
   }, [results]);
 
   const filteredResults = useMemo(() => {
     if (filterCity === 'all') return results;
-    return results.filter(r => safeRender(r.job.location).includes(filterCity));
+    return results.filter(r => safeRender(r.job?.location).includes(filterCity));
   }, [results, filterCity]);
 
   const handleExport = () => {
@@ -113,13 +121,13 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
       '公司名称': safeRender(r.job.company),
       '岗位名称': safeRender(r.job.title),
       '工作地点': safeRender(r.job.location),
-      '顶级求职教练推荐理由': safeRender(r.recommendation),
-      '投递链接': getCleanLink(r.job.link) || '请咨询猎头'
+      '教练推荐理由': safeRender(r.recommendation),
+      '投递链接': getCleanLink(r.job.link) || '暂无链接'
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "适配岗位清单");
-    XLSX.writeFile(wb, `${safeRender(candidateName)}_智能匹配岗位表_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "适配清单");
+    XLSX.writeFile(wb, `${candidateName}_匹配岗位表.xlsx`);
   };
 
   if (results.length === 0) {
@@ -128,7 +136,7 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
         <div className="p-4 rounded-full bg-gray-900 mb-4">
           <Briefcase className="w-8 h-8 text-gray-500" />
         </div>
-        <p className="text-sm">点击左侧“智能分析”开始匹配</p>
+        <p className="text-sm">请上传简历并点击“开始智能匹配”</p>
       </div>
     );
   }
@@ -141,7 +149,6 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
             <Sparkles className="w-5 h-5 text-blue-500" /> 
             推荐岗位 ({filteredResults.length})
           </h2>
-          <p className="text-[10px] text-gray-500 mt-1 uppercase font-mono">Top Career Coach Recommendations</p>
         </div>
         
         <div className="flex items-center gap-2">
@@ -159,10 +166,10 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
           
           <button 
             onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-blue-900/20"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
           >
             <Download className="w-3 h-3" />
-            一键导出适配表
+            导出表格
           </button>
         </div>
       </div>
@@ -171,10 +178,6 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
         {filteredResults.map(r => (
           <JobCard key={r.jobId} res={r} />
         ))}
-        
-        <div className="text-center text-[10px] text-gray-600 mt-8 mb-4">
-           AI 已扫描所有岗位库，匹配出最适合您的 {filteredResults.length} 个席位
-        </div>
       </div>
     </div>
   );

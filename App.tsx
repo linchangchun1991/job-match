@@ -76,14 +76,10 @@ const App: React.FC = () => {
 
   const initData = async () => {
     try {
-      let key = storage.getApiKey();
-      if (!key || key.length < 10) {
-        key = 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
-        storage.setApiKey(key);
-      }
+      // API key is handled by process.env.API_KEY exclusively
       const history = storage.getSessions();
       const jobs = await jobService.fetchAll();
-      setState(s => ({ ...s, apiKey: key, jobs: jobs || [], matchHistory: history || [] }));
+      setState(s => ({ ...s, jobs: jobs || [], matchHistory: history || [] }));
     } catch (err) {
       console.error("Initialization failed:", err);
     }
@@ -91,8 +87,7 @@ const App: React.FC = () => {
 
   const refreshJobs = async () => {
     const jobs = await jobService.fetchAll();
-    const key = storage.getApiKey() || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
-    setState(s => ({ ...s, jobs: jobs || [], apiKey: key }));
+    setState(s => ({ ...s, jobs: jobs || [] }));
   };
 
   const handleLogin = (role: UserRole) => {
@@ -117,8 +112,6 @@ const App: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    const currentKey = state.apiKey || storage.getApiKey() || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
-    
     if (!state.currentResume.trim()) { 
       alert("请先上传简历文件或输入简历文本"); 
       return; 
@@ -138,14 +131,14 @@ const App: React.FC = () => {
 
     try {
       // 步骤 1: 解析简历
-      const parsed = await parseResume(state.currentResume, currentKey);
+      const parsed = await parseResume(state.currentResume);
       setProgress(40);
       setLoadingStep('语义索引匹配中 (预计 8s)...');
       
       setState(s => ({ ...s, parsedResume: parsed, isMatching: true }));
       
       // 步骤 2: 匹配岗位
-      const finalMatches = await matchJobs(parsed, state.jobs, currentKey, (newBatch) => {
+      const finalMatches = await matchJobs(parsed, state.jobs, (newBatch) => {
         setProgress(85);
         setLoadingStep('生成教练推荐语中 (预计 2s)...');
         setState(current => ({ ...current, matchResults: newBatch }));
