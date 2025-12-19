@@ -16,22 +16,27 @@ interface MatchResultsProps {
 const getCleanLink = (link?: any) => {
   if (!link) return undefined;
   let clean = String(link).trim();
-  if (clean === '' || clean === 'null' || clean === 'undefined') return undefined;
+  if (clean === '' || clean === 'null' || clean === 'undefined' || clean === '暂无链接' || clean === 'null') return undefined;
   
-  if (!clean.startsWith('http')) {
-    if (clean.startsWith('www.')) {
-      clean = 'https://' + clean;
-    } else if (clean.includes('.') && clean.includes('/')) {
-      clean = 'https://' + clean;
-    } else {
-      return undefined;
+  // 宽松的 URL 验证：只要包含点号且长度足够
+  if (clean.includes('.') && clean.length > 5) {
+    if (!clean.startsWith('http')) {
+       // 自动补全协议
+       if (clean.startsWith('www.')) return 'https://' + clean;
+       return 'https://' + clean;
     }
+    return clean;
   }
-  return clean;
+  
+  return undefined;
 };
 
 const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
-  const finalLink = getCleanLink(res.job?.link);
+  // 深度探测链接字段
+  const job = res.job as any;
+  const rawLink = job.link || job.url || job.applicationLink || job.application_link || job['投递链接'];
+  const finalLink = getCleanLink(rawLink);
+  
   const scoreColor = res.score >= 85 ? 'text-green-400' : res.score >= 75 ? 'text-blue-400' : 'text-yellow-500';
 
   return (
@@ -118,7 +123,7 @@ const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) =
       '岗位名称': safeRender(r.job.title),
       '工作地点': safeRender(r.job.location),
       '教练推荐理由': safeRender(r.recommendation),
-      '投递链接': getCleanLink(r.job.link) || '暂无链接'
+      '投递链接': getCleanLink((r.job as any).link || (r.job as any).url) || '暂无链接'
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();

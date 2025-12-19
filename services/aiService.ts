@@ -2,10 +2,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-/**
- * 严格按照规范初始化
- * 增加硬编码兜底 Key 以防止环境变量注入失败导致的“API key is missing”报错
- */
 const getAIClient = () => {
   const apiKey = (process.env.API_KEY || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20').trim();
   return new GoogleGenAI({ apiKey });
@@ -74,7 +70,6 @@ export const matchJobs = async (
   jobs: Job[],
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
-  // 取前150个岗位进行精细化 AI 匹配
   const validJobs = jobs.slice(0, 150);
   if (validJobs.length === 0) return [];
 
@@ -115,7 +110,6 @@ export const matchJobs = async (
     const results = (parsed.matches || []).map((m: any) => {
       const originalJob = validJobs[m.i];
       if (!originalJob) return null;
-      // 核心修复：确保 originalJob 里的所有链接字段都被完整保留
       return {
         jobId: originalJob.id,
         score: m.score,
@@ -128,13 +122,12 @@ export const matchJobs = async (
     if (onProgress) onProgress(results);
     return results;
   } catch (e) {
-    console.error("Match Jobs Error:", e);
     return [];
   }
 };
 
 /**
- * 极速解析引擎 V3.2 - 增强型多字段链接探测
+ * 极速解析引擎 V3.3 - 智能自适应分隔符
  */
 export const parseSmartJobs = async (
   rawText: string, 
@@ -146,7 +139,8 @@ export const parseSmartJobs = async (
   const errorLines: string[] = [];
   const total = lines.length;
 
-  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\/[^\s]*)/gi;
+  // 改进正则表达式，更好地处理末尾带斜杠或参数的 URL
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\/[^\s?#]*(\?[^\s#]*)?(#[^\s]*)?)/gi;
 
   for (let i = 0; i < total; i++) {
     const line = lines[i].trim();
@@ -162,23 +156,28 @@ export const parseSmartJobs = async (
     }
 
     const textWithoutLink = foundLink ? line.replace(foundLink, '').trim() : line;
-    const parts = textWithoutLink.split(/[|丨\t]{1,}|[ ]{2,}/).map(p => p.trim()).filter(p => p.length > 0);
+    
+    // 智能切分：首先尝试 | 、 Tab 或 两个空格
+    let parts = textWithoutLink.split(/[|丨\t]{1,}|[ ]{2,}/).map(p => p.trim()).filter(p => p.length > 0);
+    
+    // 如果切分后只有一个部分，尝试使用单个空格切分（针对简易粘贴格式）
+    if (parts.length === 1 && textWithoutLink.includes(' ')) {
+      parts = textWithoutLink.split(/\s+/).map(p => p.trim()).filter(p => p.length > 0);
+    }
     
     if (parts.length >= 1) {
       const company = parts[0] || '未知企业';
-      const title = parts[1] || parts[0] + '招聘岗位';
+      const title = parts[1] || (parts.length > 1 ? parts[1] : '招聘岗位');
       const location = parts[2] || '全国';
       
-      // 按照用户要求的 fix_link_field_mapping 逻辑实现多字段映射
       allJobs.push({ 
         company, 
         title, 
         location, 
-        link: foundLink,               // 标准字段
-        url: foundLink,                // 通用别名
-        application_link: foundLink,   // 下划线别名
-        applicationLink: foundLink,    // 驼峰别名
-        '投递链接': foundLink          // 中文别名
+        link: foundLink,
+        url: foundLink,
+        applicationLink: foundLink,
+        '投递链接': foundLink
       });
     } else {
       errorLines.push(`第 ${i+1} 行格式异常: ${line.slice(0, 20)}`);
