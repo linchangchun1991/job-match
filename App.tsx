@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, FileText, User, Upload, BarChart3, Clock, LogOut, Sparkles, User as UserIcon, Zap, AlertTriangle, Timer } from './components/Icons';
+import { Settings, FileText, User, Upload, BarChart3, Clock, LogOut, Sparkles, User as UserIcon, Zap, AlertTriangle, Timer, Database, CheckCircle, XCircle } from './components/Icons';
 import SettingsModal from './components/SettingsModal';
 import JobManager from './components/JobManager';
 import MatchResults from './components/MatchResults';
@@ -10,6 +10,7 @@ import { storage } from './services/storage';
 import { parseResume, matchJobs } from './services/aiService';
 import { parseFile } from './services/fileParser';
 import { jobService } from './services/jobService';
+import { isCloudEnabled } from './services/supabase';
 import { AppState, Job, ParsedResume, UserRole, MatchSession } from './types';
 
 export const safeRender = (value: any): string => {
@@ -54,12 +55,18 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [estimatedTime, setEstimatedTime] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [cloudActive, setCloudActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => { 
     initData(); 
   }, []);
+
+  // 检查云端连接
+  useEffect(() => {
+    setCloudActive(isCloudEnabled());
+  }, [state.settingsOpen]);
 
   // 计时器逻辑
   useEffect(() => {
@@ -76,10 +83,10 @@ const App: React.FC = () => {
 
   const initData = async () => {
     try {
-      // API key is handled by process.env.API_KEY exclusively
       const history = storage.getSessions();
       const jobs = await jobService.fetchAll();
       setState(s => ({ ...s, jobs: jobs || [], matchHistory: history || [] }));
+      setCloudActive(isCloudEnabled());
     } catch (err) {
       console.error("Initialization failed:", err);
     }
@@ -88,6 +95,7 @@ const App: React.FC = () => {
   const refreshJobs = async () => {
     const jobs = await jobService.fetchAll();
     setState(s => ({ ...s, jobs: jobs || [] }));
+    setCloudActive(isCloudEnabled());
   };
 
   const handleLogin = (role: UserRole) => {
@@ -118,11 +126,10 @@ const App: React.FC = () => {
     }
     
     if (state.jobs.length === 0) { 
-      alert("岗位库为空！请先同步岗位数据。"); 
+      alert("岗位库为空！如果你确认云端有数据，请点击右上角齿轮检查数据库连接配置。"); 
       return; 
     }
 
-    // 预估总时长：解析(5s) + 匹配(150岗位约10s) = 约15s
     const est = 15;
     setEstimatedTime(est);
     setState(s => ({ ...s, isAnalyzing: true, matchResults: [], parsedResume: null }));
@@ -130,14 +137,12 @@ const App: React.FC = () => {
     setProgress(10);
 
     try {
-      // 步骤 1: 解析简历
       const parsed = await parseResume(state.currentResume);
       setProgress(40);
       setLoadingStep('语义索引匹配中 (预计 8s)...');
       
       setState(s => ({ ...s, parsedResume: parsed, isMatching: true }));
       
-      // 步骤 2: 匹配岗位
       const finalMatches = await matchJobs(parsed, state.jobs, (newBatch) => {
         setProgress(85);
         setLoadingStep('生成教练推荐语中 (预计 2s)...');
@@ -191,7 +196,19 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
             <Logo />
             <div className="h-4 w-[1px] bg-gray-800"></div>
-            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Smart Career Pro</span>
+            <div className="flex items-center gap-2">
+               {cloudActive ? (
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 border border-green-500/20">
+                    <CheckCircle className="w-3 h-3 text-green-500" />
+                    <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest">Cloud Sync Active</span>
+                 </div>
+               ) : (
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10 border border-red-500/20">
+                    <AlertTriangle className="w-3 h-3 text-red-500" />
+                    <span className="text-[10px] text-red-500 font-bold uppercase tracking-widest">Local Mode Only</span>
+                 </div>
+               )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-blue-500 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 mr-2 uppercase font-bold">
@@ -250,7 +267,6 @@ const App: React.FC = () => {
                     </span>
                   </button>
 
-                  {/* 进度提示增强 */}
                   {(state.isAnalyzing || state.isMatching) && (
                     <div className="mt-4 animate-in fade-in duration-500">
                       <div className="flex justify-between items-end mb-2">
