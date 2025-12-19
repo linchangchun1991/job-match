@@ -2,13 +2,12 @@
 import React, { useState, useMemo } from 'react';
 import { MatchResult } from '../types';
 import { 
-  MapPin, Download, ExternalLink, Sparkles, Filter, Briefcase, CheckCircle, Ban, Lightbulb
+  MapPin, Download, ExternalLink, Sparkles, Filter, Briefcase, Ban, Lightbulb
 } from './Icons';
 import { safeRender } from '../App';
 
 declare const XLSX: any;
 
-// Define the missing props interface to fix line 93 error
 interface MatchResultsProps {
   results: MatchResult[];
   candidateName: string;
@@ -19,7 +18,6 @@ const getCleanLink = (link?: any) => {
   let clean = String(link).trim();
   if (clean === '' || clean === 'null' || clean === 'undefined') return undefined;
   
-  // 补全协议头
   if (!clean.startsWith('http')) {
     if (clean.startsWith('www.')) {
       clean = 'https://' + clean;
@@ -33,7 +31,6 @@ const getCleanLink = (link?: any) => {
 };
 
 const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
-  // 直接从 res.job.link 获取，并经过清洗
   const finalLink = getCleanLink(res.job?.link);
   const scoreColor = res.score >= 85 ? 'text-green-400' : res.score >= 75 ? 'text-blue-400' : 'text-yellow-500';
 
@@ -96,7 +93,6 @@ const JobCard: React.FC<{ res: MatchResult }> = ({ res }) => {
   );
 };
 
-// Fixed React.FC type parameter with the added interface
 const MatchResults: React.FC<MatchResultsProps> = ({ results, candidateName }) => {
   const [filterCity, setFilterCity] = useState<string>('all');
 

@@ -2,7 +2,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-// Obtain API key exclusively from environment variable as per guidelines
+/**
+ * 严格按照规范：API Key 必须排他性地从 process.env.API_KEY 获取
+ * 使用 new GoogleGenAI({ apiKey: process.env.API_KEY }) 进行初始化
+ */
 const getAIClient = () => {
   const apiKey = (process.env.API_KEY || '').trim();
   return new GoogleGenAI({ apiKey });
@@ -46,10 +49,12 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
         }
       }
     });
-    // Use the .text property directly (not a method) as per guidelines
+    
+    // 规范：直接访问 .text 属性
     const textOutput = response.text;
     if (!textOutput) throw new Error("AI 解析结果为空");
     const data = JSON.parse(textOutput);
+    
     return {
       ...data,
       isFreshGrad: true,
@@ -103,10 +108,10 @@ export const matchJobs = async (
       }
     });
 
-    // Use the .text property directly (not a method) as per guidelines
     const textOutput = response.text;
     if (!textOutput) return [];
     const parsed = JSON.parse(textOutput);
+    
     const results = (parsed.matches || []).map((m: any) => {
       const originalJob = validJobs[m.i];
       if (!originalJob) return null;
@@ -115,7 +120,7 @@ export const matchJobs = async (
         score: m.score,
         matchReasons: [m.reason],
         recommendation: m.reason,
-        job: { ...originalJob } // 显式展开确保 link 属性不丢失
+        job: { ...originalJob }
       };
     }).filter(Boolean) as MatchResult[];
 
@@ -126,9 +131,6 @@ export const matchJobs = async (
   }
 };
 
-/**
- * 极速解析引擎 V3.1 - 增强型 URL 自动抓取
- */
 export const parseSmartJobs = async (
   rawText: string, 
   onProgress?: (current: number, total: number, errorLines?: string[]) => void
@@ -148,17 +150,13 @@ export const parseSmartJobs = async (
       continue;
     }
 
-    // 1. 尝试在此行中寻找 URL
     let foundLink = '';
     const urlMatches = line.match(urlRegex);
     if (urlMatches && urlMatches.length > 0) {
       foundLink = urlMatches[0];
     }
 
-    // 2. 移除行内的 URL 以便更好地切分公司和岗位
     const textWithoutLink = foundLink ? line.replace(foundLink, '').trim() : line;
-    
-    // 3. 使用宽泛分隔符切分
     const parts = textWithoutLink.split(/[|丨\t\s]{1,}/).map(p => p.trim()).filter(p => p.length > 0);
     
     if (parts.length >= 1) {
