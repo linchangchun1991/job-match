@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, FileText, User, Upload, BarChart3, Clock, LogOut, Sparkles, User as UserIcon, Zap, AlertTriangle } from './components/Icons';
+import { Settings, FileText, User, Upload, BarChart3, Clock, LogOut, Sparkles, User as UserIcon, Zap, AlertTriangle, Timer } from './components/Icons';
 import SettingsModal from './components/SettingsModal';
 import JobManager from './components/JobManager';
 import MatchResults from './components/MatchResults';
@@ -52,40 +52,46 @@ const App: React.FC = () => {
 
   const [loadingStep, setLoadingStep] = useState<string>('');
   const [progress, setProgress] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => { 
     initData(); 
   }, []);
 
+  // 计时器逻辑
+  useEffect(() => {
+    if (state.isAnalyzing || state.isMatching) {
+      timerRef.current = window.setInterval(() => {
+        setElapsedTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setElapsedTime(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [state.isAnalyzing, state.isMatching]);
+
   const initData = async () => {
     try {
       let key = storage.getApiKey();
-      // 如果没有存储 Key，则设置默认 Key
-      if (!key || key.trim() === '') {
+      if (!key || key.length < 10) {
         key = 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
         storage.setApiKey(key);
       }
-
       const history = storage.getSessions();
       const jobs = await jobService.fetchAll();
-      console.log("System Initialized. Active API Key Found:", !!key);
-      
-      setState(s => ({ 
-        ...s, 
-        apiKey: key,
-        jobs: jobs || [], 
-        matchHistory: history || [] 
-      }));
+      setState(s => ({ ...s, apiKey: key, jobs: jobs || [], matchHistory: history || [] }));
     } catch (err) {
       console.error("Initialization failed:", err);
-      setState(s => ({ ...s, jobs: [] }));
     }
   };
 
   const refreshJobs = async () => {
     const jobs = await jobService.fetchAll();
-    const key = storage.getApiKey();
+    const key = storage.getApiKey() || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
     setState(s => ({ ...s, jobs: jobs || [], apiKey: key }));
   };
 
@@ -101,7 +107,7 @@ const App: React.FC = () => {
     if (!file) return;
     try {
       setState(s => ({ ...s, isAnalyzing: true }));
-      setLoadingStep('正在提取文件内容...');
+      setLoadingStep('正在提取简历文本...');
       const text = await parseFile(file);
       setState(s => ({ ...s, currentResume: text, isAnalyzing: false }));
     } catch (error: any) {
@@ -111,44 +117,42 @@ const App: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    const currentKey = state.apiKey || storage.getApiKey();
+    const currentKey = state.apiKey || storage.getApiKey() || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
     
-    if (!currentKey || currentKey.trim() === '') {
-      alert("请点击右上角设置图标，填入有效 Gemini API Key 后再使用。");
-      setState(s => ({ ...s, settingsOpen: true }));
-      return;
-    }
-
     if (!state.currentResume.trim()) { 
-      alert("请上传简历文件或在文本框中输入简历内容"); 
+      alert("请先上传简历文件或输入简历文本"); 
       return; 
     }
     
     if (state.jobs.length === 0) { 
-      alert("当前岗位库为空！请在下方控制台添加并同步岗位数据。"); 
+      alert("岗位库为空！请先同步岗位数据。"); 
       return; 
     }
 
+    // 预估总时长：解析(5s) + 匹配(150岗位约10s) = 约15s
+    const est = 15;
+    setEstimatedTime(est);
     setState(s => ({ ...s, isAnalyzing: true, matchResults: [], parsedResume: null }));
-    setLoadingStep('AI 正在进行深度语义画像解析...');
+    setLoadingStep('AI 画像建模中 (预计 5s)...');
     setProgress(10);
 
     try {
+      // 步骤 1: 解析简历
       const parsed = await parseResume(state.currentResume, currentKey);
-      console.log("Resume Parsed:", parsed.name);
       setProgress(40);
-      setLoadingStep('正在全库搜索最匹配岗位...');
+      setLoadingStep('语义索引匹配中 (预计 8s)...');
       
       setState(s => ({ ...s, parsedResume: parsed, isMatching: true }));
       
+      // 步骤 2: 匹配岗位
       const finalMatches = await matchJobs(parsed, state.jobs, currentKey, (newBatch) => {
         setProgress(85);
+        setLoadingStep('生成教练推荐语中 (预计 2s)...');
         setState(current => ({ ...current, matchResults: newBatch }));
       });
       
-      console.log("Matching completed:", finalMatches.length);
       setProgress(100);
-      setLoadingStep('智能匹配已就绪');
+      setLoadingStep('智能匹配已完成');
 
       const newSession: MatchSession = { 
         id: Date.now().toString(), 
@@ -159,6 +163,7 @@ const App: React.FC = () => {
         results: finalMatches 
       };
       storage.saveSession(newSession);
+      
       setState(s => ({ 
         ...s, 
         matchResults: finalMatches, 
@@ -167,13 +172,14 @@ const App: React.FC = () => {
         matchHistory: storage.getSessions() 
       }));
       
-      setTimeout(() => { setLoadingStep(''); setProgress(0); }, 2000);
+      setTimeout(() => { setLoadingStep(''); setProgress(0); setEstimatedTime(0); }, 2000);
     } catch (error: any) {
-      console.error("Match Analysis Error:", error);
-      alert("解析或匹配失败: " + error.message);
+      console.error("Workflow Error:", error);
+      alert("处理失败: " + error.message);
       setState(s => ({ ...s, isAnalyzing: false, isMatching: false }));
       setLoadingStep('');
       setProgress(0);
+      setEstimatedTime(0);
     }
   };
 
@@ -183,6 +189,7 @@ const App: React.FC = () => {
 
   const isCoach = state.userRole === 'coach';
   const isBD = state.userRole === 'bd';
+  const remainingTime = Math.max(0, estimatedTime - elapsedTime);
 
   return (
     <div className="min-h-screen bg-black text-white pb-20 font-sans">
@@ -231,33 +238,43 @@ const App: React.FC = () => {
                   className="w-full h-40 bg-black/50 border border-gray-800 rounded-xl p-4 text-xs text-gray-300 focus:border-blue-600 focus:outline-none transition-all resize-none custom-scrollbar font-mono mb-4"
                 />
 
-                {!state.apiKey && (
-                  <div className="mb-4 flex items-center gap-2 text-red-500 bg-red-500/10 border border-red-500/20 p-3 rounded-lg">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span className="text-[11px] font-bold">错误：API Key 未激活，请点击右上角设置</span>
-                  </div>
-                )}
+                <div className="relative">
+                  <button 
+                    onClick={handleStartAnalysis}
+                    disabled={state.isAnalyzing || state.isMatching}
+                    className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 relative overflow-hidden shadow-2xl ${
+                      state.isAnalyzing || state.isMatching
+                      ? 'bg-gray-800 text-gray-500 cursor-not-allowed' 
+                      : 'bg-white text-black hover:bg-blue-500 hover:text-white active:scale-95'
+                    }`}
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {state.isAnalyzing || state.isMatching ? (
+                        <><Zap className="w-4 h-4 animate-spin text-blue-600" /> {loadingStep || '正在处理...'}</>
+                      ) : (
+                        <><Sparkles className="w-4 h-4" /> 开始猎头级智能匹配</>
+                      )}
+                    </span>
+                  </button>
 
-                <button 
-                  onClick={handleStartAnalysis}
-                  disabled={state.isAnalyzing || state.isMatching}
-                  className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 relative overflow-hidden shadow-2xl ${
-                    state.isAnalyzing || state.isMatching || (!state.apiKey && !storage.getApiKey())
-                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed' 
-                    : 'bg-white text-black hover:bg-blue-500 hover:text-white active:scale-95'
-                  }`}
-                >
-                  <span className="relative z-10 flex items-center gap-2">
-                    {state.isAnalyzing || state.isMatching ? (
-                      <><Zap className="w-4 h-4 animate-spin text-blue-600" /> {loadingStep || '正在工作...'}</>
-                    ) : (
-                      <><Sparkles className="w-4 h-4" /> 开始猎头级智能匹配</>
-                    )}
-                  </span>
-                  { (state.isAnalyzing || state.isMatching) && (
-                    <div className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                  {/* 进度提示增强 */}
+                  {(state.isAnalyzing || state.isMatching) && (
+                    <div className="mt-4 animate-in fade-in duration-500">
+                      <div className="flex justify-between items-end mb-2">
+                        <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                           <Timer className="w-3 h-3" /> 预计还需 {remainingTime} 秒
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-mono">{progress}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-blue-600 to-indigo-400 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(37,99,235,0.5)]" 
+                          style={{ width: `${progress}%` }}
+                        ></div>
+                      </div>
+                    </div>
                   )}
-                </button>
+                </div>
               </div>
 
               {state.parsedResume && (
