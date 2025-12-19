@@ -1,22 +1,15 @@
 
-import { getSupabase, isCloudEnabled } from './supabase';
+import { getSupabase } from './supabase';
 import { Job } from '../types';
 import { storage } from './storage';
 
-interface UploadResult {
+interface SyncResult {
   success: boolean;
-  message?: string;
+  message: string;
+  count?: number;
 }
 
-const formatError = (error: any): string => {
-  if (!error) return '未知错误';
-  return error.message || JSON.stringify(error);
-};
-
 export const jobService = {
-  /**
-   * 获取所有岗位：增加了字段“容错抓取”逻辑
-   */
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
     if (!supabase) return storage.getJobs();
@@ -25,95 +18,76 @@ export const jobService = {
       const { data, error } = await supabase
         .from('jobs')
         .select('*')
-        .order('created_at', { ascending: false })
-        .limit(2000);
+        .order('id', { ascending: false });
 
       if (error) throw error;
       
-      return (data || []).map((item: any) => {
-          // 智能探测链接字段：优先 link，其次 url 或 application_link
-          const detectedLink = item.link || item.url || item.application_link || item.applicationLink || '';
-          
-          return {
-            id: String(item.id),
-            company: (item.company || '未知公司').trim(),
-            title: (item.title || '岗位').trim(),
-            location: (item.location || '全国').trim(), 
-            requirement: item.requirement || '',
-            link: String(detectedLink).trim(),
-            updateTime: item.created_at?.split('T')[0] || '',
-            type: item.type || ''
-          };
-      });
-    } catch (e) {
-      console.error("Supabase 数据读取失败:", e);
+      return (data || []).map((item: any) => ({
+        id: String(item.id),
+        company: item.company || '未知公司',
+        title: item.title || '招聘岗位',
+        location: item.location || '全国', 
+        requirement: item.requirement || '',
+        link: item.link || item.url || '',
+        updateTime: item.created_at?.split('T')[0] || '',
+        type: item.type || ''
+      }));
+    } catch (e: any) {
+      console.error("Cloud fetch error:", e);
+      // 如果云端失败，返回本地缓存作为兜底，但在 UI 提示
       return storage.getJobs();
     }
   },
 
-  /**
-   * 批量插入：严格对接 link 字段
-   */
-  bulkInsert: async (jobs: Job[]): Promise<UploadResult> => {
-    if (jobs.length === 0) return { success: true, message: "没有待同步的数据" };
-    
+  bulkInsert: async (jobs: Job[]): Promise<SyncResult> => {
     const supabase = getSupabase();
+    
     if (!supabase) {
-      storage.setJobs([...storage.getJobs(), ...jobs]);
-      return { success: true };
+      const existing = storage.getJobs();
+      const updated = [...jobs, ...existing].slice(0, 1000);
+      storage.setJobs(updated);
+      return { success: true, message: "⚠️ 未配置云数据库，已保存至本地存储", count: jobs.length };
     }
 
-    // 核心字段映射
-    const rowsToInsert = jobs.map(j => ({
-      company: j.company,
-      title: j.title,
-      location: j.location,
-      link: j.link || '', // 对应 SQL 中的 link 列
-      requirement: j.requirement || '',
-      type: j.type || ''
-    }));
-
-    // 执行插入
-    const { error: insertError } = await supabase.from('jobs').insert(rowsToInsert);
-    
-    if (insertError) {
-      console.error("插入失败:", insertError);
-      
-      // 尝试极端简化模式（只保公司、岗位、链接）
-      const minimalRows = jobs.map(j => ({
+    try {
+      const rows = jobs.map(j => ({
         company: j.company,
         title: j.title,
-        link: j.link || ''
+        location: j.location,
+        link: j.link || '',
+        requirement: j.requirement || '',
+        type: j.type || ''
       }));
+
+      const { error } = await supabase.from('jobs').insert(rows);
       
-      const { error: minError } = await supabase.from('jobs').insert(minimalRows);
-      
-      if (minError) {
+      if (error) {
         return { 
           success: false, 
-          message: `同步失败！请确认已在 Supabase SQL Editor 运行过修复命令。错误: ${formatError(minError)}` 
+          message: `云端同步失败: ${error.message} (代码: ${error.code})。请确保已在 Supabase 运行建表 SQL。` 
         };
       }
-      
-      return { success: true, message: "通过兼容模式同步成功（部分字段已忽略）" };
-    }
 
-    return { success: true };
+      return { success: true, message: "✅ 云端同步成功！", count: jobs.length };
+    } catch (e: any) {
+      return { success: false, message: `同步异常: ${e.message}` };
+    }
   },
 
-  /**
-   * 清空数据库
-   */
-  clearAll: async (): Promise<{ success: boolean; message: string }> => {
+  clearAll: async (): Promise<SyncResult> => {
     const supabase = getSupabase();
     if (!supabase) {
       storage.setJobs([]);
-      return { success: true, message: '本地已清空' };
+      return { success: true, message: '本地存储已清空' };
     }
 
-    // Supabase 不允许无条件删除，通过删除 id 不等于 -1 的所有行来实现清空
-    const { error } = await supabase.from('jobs').delete().neq('id', -1);
-    if (error) return { success: false, message: formatError(error) };
-    return { success: true, message: '云端已清空' };
+    try {
+      // 这里的逻辑需要 RLS 策略支持 DELETE
+      const { error } = await supabase.from('jobs').delete().neq('id', -1);
+      if (error) throw error;
+      return { success: true, message: '云端数据库已清空' };
+    } catch (e: any) {
+      return { success: false, message: `清空失败: ${e.message}` };
+    }
   }
 };

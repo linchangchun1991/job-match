@@ -2,17 +2,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
+// Create AI client using the mandated process.env.API_KEY
 const getAIClient = () => {
-  const apiKey = (process.env.API_KEY || 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20').trim();
+  // 严格遵守：仅从 process.env.API_KEY 获取，不设硬编码回退
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY 未配置，请联系系统管理员。");
   return new GoogleGenAI({ apiKey });
 };
 
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   try {
     const ai = getAIClient();
+    // Using gemini-3-pro-preview for complex reasoning in resume parsing
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `你是一个高效的ATS简历解析器。请直接提取此简历的核心画像数据，严禁输出任何废话：\n\n${text.slice(0, 6000)}`,
+      model: "gemini-3-pro-preview",
+      contents: `你是一个专业的求职咨询专家。请分析以下简历文本，提取候选人画像。
+要求：
+1. 提取核心领域（如：互联网营销、Java开发）。
+2. 评估资历等级（如：应届生、初级、资深）。
+3. 给出 ATS 适配分 (0-100)。
+4. 提取 5 个核心关键词。
+
+简历文本：\n${text.slice(0, 8000)}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -46,10 +57,9 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       }
     });
     
-    const textOutput = response.text;
-    if (!textOutput) throw new Error("AI 解析结果为空");
-    const data = JSON.parse(textOutput);
-    
+    // Access text property directly (not a method) as per guidelines
+    const jsonStr = response.text || '{}';
+    const data = JSON.parse(jsonStr);
     return {
       ...data,
       isFreshGrad: true,
@@ -61,7 +71,7 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       tags: { degree: [], exp: [], skill: [], intent: [] }
     } as ParsedResume;
   } catch (e: any) {
-    throw new Error(`解析失败: ${e.message}`);
+    throw new Error(`简历解析失败: ${e.message}`);
   }
 };
 
@@ -70,18 +80,17 @@ export const matchJobs = async (
   jobs: Job[],
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
-  const validJobs = jobs.slice(0, 150);
-  if (validJobs.length === 0) return [];
+  if (jobs.length === 0) return [];
+  const sampleJobs = jobs.slice(0, 100); // 选取最近100个岗位进行匹配
 
   try {
     const ai = getAIClient();
+    // Using gemini-3-pro-preview for high-quality matching recommendations
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `
-        作为职业教练，请从下方岗位列表中选出最适合此候选人的10个岗位。
-        候选人画像：${JSON.stringify(resume)}
-        待选岗位（索引/公司/标题）：${JSON.stringify(validJobs.map((j, i) => ({ i, c: j.company, t: j.title })))}
-      `,
+      model: "gemini-3-pro-preview",
+      contents: `你是一个金牌职业教练。请根据候选人画像，从提供的岗位列表中选出最匹配的 10 个。
+候选人：${JSON.stringify(resume)}
+岗位列表：${JSON.stringify(sampleJobs.map((j, i) => ({ id: j.id, c: j.company, t: j.title, idx: i })))}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -92,9 +101,9 @@ export const matchJobs = async (
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  i: { type: Type.NUMBER, description: "原始岗位索引" },
+                  idx: { type: Type.NUMBER },
                   score: { type: Type.NUMBER },
-                  reason: { type: Type.STRING, description: "推荐理由" }
+                  reason: { type: Type.STRING }
                 }
               }
             }
@@ -103,87 +112,45 @@ export const matchJobs = async (
       }
     });
 
-    const textOutput = response.text;
-    if (!textOutput) return [];
-    const parsed = JSON.parse(textOutput);
-    
+    // Access text property directly (not a method) as per guidelines
+    const jsonStr = response.text || '{"matches":[]}';
+    const parsed = JSON.parse(jsonStr);
     const results = (parsed.matches || []).map((m: any) => {
-      const originalJob = validJobs[m.i];
-      if (!originalJob) return null;
+      const job = sampleJobs[m.idx];
+      if (!job) return null;
       return {
-        jobId: originalJob.id,
+        jobId: job.id,
         score: m.score,
         matchReasons: [m.reason],
         recommendation: m.reason,
-        job: { ...originalJob } 
+        job: { ...job }
       };
     }).filter(Boolean) as MatchResult[];
 
     if (onProgress) onProgress(results);
     return results;
   } catch (e) {
+    console.error("Match error:", e);
     return [];
   }
 };
 
-/**
- * 极速解析引擎 V3.3 - 智能自适应分隔符
- */
-export const parseSmartJobs = async (
-  rawText: string, 
-  onProgress?: (current: number, total: number, errorLines?: string[]) => void
-): Promise<any[]> => {
+export const parseSmartJobs = async (rawText: string): Promise<any[]> => {
   if (!rawText) return [];
-  const lines = rawText.split(/\r?\n/);
-  const allJobs: any[] = [];
-  const errorLines: string[] = [];
-  const total = lines.length;
+  const lines = rawText.split(/\n/).filter(l => l.trim());
+  const jobs: any[] = [];
 
-  // 改进正则表达式，更好地处理末尾带斜杠或参数的 URL
-  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\/[^\s?#]*(\?[^\s#]*)?(#[^\s]*)?)/gi;
-
-  for (let i = 0; i < total; i++) {
-    const line = lines[i].trim();
-    if (!line || line.startsWith('=') || line.startsWith('#')) {
-      if (onProgress) onProgress(i + 1, total, errorLines);
-      continue;
-    }
-
-    let foundLink = '';
-    const urlMatches = line.match(urlRegex);
-    if (urlMatches && urlMatches.length > 0) {
-      foundLink = urlMatches[0].trim();
-    }
-
-    const textWithoutLink = foundLink ? line.replace(foundLink, '').trim() : line;
-    
-    // 智能切分：首先尝试 | 、 Tab 或 两个空格
-    let parts = textWithoutLink.split(/[|丨\t]{1,}|[ ]{2,}/).map(p => p.trim()).filter(p => p.length > 0);
-    
-    // 如果切分后只有一个部分，尝试使用单个空格切分（针对简易粘贴格式）
-    if (parts.length === 1 && textWithoutLink.includes(' ')) {
-      parts = textWithoutLink.split(/\s+/).map(p => p.trim()).filter(p => p.length > 0);
-    }
-    
-    if (parts.length >= 1) {
-      const company = parts[0] || '未知企业';
-      const title = parts[1] || (parts.length > 1 ? parts[1] : '招聘岗位');
-      const location = parts[2] || '全国';
-      
-      allJobs.push({ 
-        company, 
-        title, 
-        location, 
-        link: foundLink,
-        url: foundLink,
-        applicationLink: foundLink,
-        '投递链接': foundLink
+  for (const line of lines) {
+    const parts = line.split(/[|丨\t\s]{1,}/).map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const linkMatch = line.match(/https?:\/\/[^\s]+/i);
+      jobs.push({
+        company: parts[0],
+        title: parts[1],
+        location: parts[2] || '全国',
+        link: linkMatch ? linkMatch[0] : ''
       });
-    } else {
-      errorLines.push(`第 ${i+1} 行格式异常: ${line.slice(0, 20)}`);
     }
-    
-    if (onProgress) onProgress(i + 1, total, errorLines);
   }
-  return allJobs;
+  return jobs;
 };

@@ -2,37 +2,32 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { storage } from './storage';
 
-/**
- * 动态获取 Supabase 客户端
- * 逻辑：环境变量(全局) > 本地存储(个人自定义)
- */
 export const getSupabase = (): SupabaseClient | null => {
   try {
-    // 1. 优先尝试从系统环境变量获取（用于全员共享）
-    let url = process.env.SUPABASE_URL;
-    let key = process.env.SUPABASE_KEY;
+    // 优先从本地存储读取（用户手动配置）
+    const config = storage.getSupabaseConfig();
+    let url = config.url;
+    let key = config.key;
 
-    // 2. 如果环境变量没有，再从本地存储获取
+    // 其次从环境变量读取（系统自动注入）
     if (!url || !key) {
-      const config = storage.getSupabaseConfig();
-      url = config.url;
-      key = config.key;
+      url = process.env.SUPABASE_URL || '';
+      key = process.env.SUPABASE_KEY || '';
     }
     
-    if (!url || !key || typeof url !== 'string' || !url.startsWith('http')) {
+    if (!url || !key || !url.startsWith('http')) {
       return null;
     }
 
-    // 确保 URL 是有效的格式
-    new URL(url);
-    
     return createClient(url, key, {
       auth: {
-        persistSession: false
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
       }
     });
   } catch (e) {
-    console.error("Supabase 初始化失败:", e);
+    console.error("Supabase 客户端初始化异常:", e);
     return null;
   }
 };
