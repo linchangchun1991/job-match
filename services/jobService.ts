@@ -1,7 +1,6 @@
 
-import { getSupabase } from './supabase';
-import { Job } from '../types';
 import { storage } from './storage';
+import { Job } from '../types';
 
 interface SyncResult {
   success: boolean;
@@ -9,24 +8,39 @@ interface SyncResult {
   count?: number;
 }
 
+// 获取 API 地址，优先使用环境变量，其次使用本地存储
+const getApiUrl = () => {
+  // @ts-ignore
+  let url = process.env.SUPABASE_URL || localStorage.getItem('careermatch_supabase_url');
+  if (url && url.endsWith('/')) url = url.slice(0, -1);
+  return url;
+};
+
 export const jobService = {
   fetchAll: async (): Promise<Job[]> => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      console.warn("Cloud not available, using local cache.");
+    const baseUrl = getApiUrl();
+    
+    // 如果没有配置 URL，直接返回本地缓存
+    if (!baseUrl) {
+      console.warn("Offline Mode: No API URL configured.");
       return storage.getJobs();
     }
     
     try {
-      const { data, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .order('id', { ascending: false });
+      // 适配 PostgREST 的查询语法：按 ID 倒序
+      const response = await fetch(`${baseUrl}/jobs?order=id.desc`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
 
-      if (error) {
-        console.error("Fetch error:", error);
-        return storage.getJobs();
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
       }
+
+      const data = await response.json();
       
       return (data || []).map((item: any) => ({
         id: String(item.id),
@@ -39,14 +53,15 @@ export const jobService = {
         type: item.type || ''
       }));
     } catch (e: any) {
+      console.error("Fetch failed, falling back to local:", e);
       return storage.getJobs();
     }
   },
 
   bulkInsert: async (jobs: Job[]): Promise<SyncResult> => {
-    const supabase = getSupabase();
+    const baseUrl = getApiUrl();
     
-    if (!supabase) {
+    if (!baseUrl) {
       const existing = storage.getJobs();
       const updated = [...jobs, ...existing].slice(0, 1000);
       storage.setJobs(updated);
@@ -63,38 +78,47 @@ export const jobService = {
         type: j.type || ''
       }));
 
-      const { error } = await supabase.from('jobs').insert(rows);
-      
-      if (error) {
-        if (error.code === 'PGRST204' || error.message.includes('column')) {
-          return { 
-            success: false, 
-            message: `字段缺失：请在【设置】中复制脚本并在国内云 SQL 编辑器运行。` 
-          };
+      const response = await fetch(`${baseUrl}/jobs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation' // 让 PostgREST 返回插入的数据
+        },
+        body: JSON.stringify(rows)
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        if (response.status === 404) {
+           return { success: false, message: "连接失败：请检查 API 地址是否正确，或数据库表是否存在。" };
         }
-        return { 
-          success: false, 
-          message: `同步失败: ${error.message}` 
-        };
+        return { success: false, message: `同步失败 (${response.status}): ${errText.slice(0, 100)}` };
       }
 
-      return { success: true, message: "🚀 国内云同步成功！岗位已入库。", count: jobs.length };
+      return { success: true, message: "🚀 云端同步成功！岗位已入库。", count: jobs.length };
     } catch (e: any) {
-      return { success: false, message: `同步异常: ${e.message}` };
+      return { success: false, message: `网络异常: ${e.message}` };
     }
   },
 
   clearAll: async (): Promise<SyncResult> => {
-    const supabase = getSupabase();
-    if (!supabase) {
+    const baseUrl = getApiUrl();
+    if (!baseUrl) {
       storage.setJobs([]);
       return { success: true, message: '本地存储已清空' };
     }
 
     try {
-      const { error } = await supabase.from('jobs').delete().neq('id', -1);
-      if (error) throw error;
-      return { success: true, message: '国内云岗位库已完全清空' };
+      // PostgREST 删除所有数据需要明确的条件，这里用 id > 0
+      const response = await fetch(`${baseUrl}/jobs?id=gt.0`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error(response.statusText);
+      return { success: true, message: '云端岗位库已清空' };
     } catch (e: any) {
       return { success: false, message: `清空失败: ${e.message}` };
     }

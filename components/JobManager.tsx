@@ -28,7 +28,7 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
     
     try {
         const rawJobs = await parseSmartJobs(pasteContent);
-        if (rawJobs.length === 0) throw new Error("识别失败。请确认格式：公司 | 岗位 | 地点 | [链接]");
+        if (rawJobs.length === 0) throw new Error("无法识别有效岗位，请检查格式 (公司|岗位|地点|链接)");
 
         if (shouldClear) {
            await jobService.clearAll();
@@ -71,10 +71,10 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
           </div>
           <div>
             <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-              BD 云端岗位中枢 <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />
+              岗位极速入库 (Zeabur Cloud) <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />
             </h3>
             <p className="text-[11px] text-gray-500">
-               {isLoading ? '正在进行海量数据同步...' : `当前库存：${jobs.length} 个岗位 | 数据库已挂载`}
+               {isLoading ? '正在解析并上传...' : `当前库存：${jobs.length} 个岗位 | 数据库状态：${syncStatus.type === 'error' ? '连接异常' : '正常'}`}
             </p>
           </div>
         </div>
@@ -84,14 +84,14 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
         {isLoading && (
            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-2xl animate-in fade-in">
               <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-              <p className="text-xs font-bold text-white uppercase tracking-widest">正在上传云端...</p>
+              <p className="text-xs font-bold text-white uppercase tracking-widest">智能拆分岗位并入库中...</p>
            </div>
         )}
 
         <div className="space-y-6">
           <textarea
             className="w-full h-72 bg-black/60 border border-white/5 rounded-2xl p-6 text-xs font-mono text-blue-100/70 focus:border-blue-500/50 focus:outline-none transition-all placeholder-gray-700 custom-scrollbar leading-relaxed"
-            placeholder="粘贴岗位数据（自动识别分隔符）&#10;示例：&#10;字节跳动 | 前端工程师 | 北京 | https://...&#10;美团 | 产品经理 | 上海 | https://..."
+            placeholder={`在此处直接粘贴您的岗位列表，系统会自动拆分多岗位：\n\n4399 | 产品类，技术类，职能类 | 广州 | https://...\n乐信 | 研发类，风险类，运营类 | 深圳,上海 | https://...\n益普索 | 助理咨询顾问，定量研究员，定性研究员 | 北京,广州 | https://...\n\n(支持格式：公司 | 岗位1，岗位2 | 地点 | 链接)`}
             value={pasteContent}
             onChange={(e) => setPasteContent(e.target.value)}
           />
@@ -102,18 +102,6 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
                    {syncStatus.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
                    <p className="text-[11px] font-bold">{syncStatus.msg}</p>
                 </div>
-                {syncStatus.type === 'error' && syncStatus.msg.includes('link') && (
-                  <button 
-                    onClick={() => {
-                       // 这是一个 Hack 触发主 App 里的 SettingsOpen
-                       const btn = document.querySelector('button[title="Settings"], .lucide-settings')?.parentElement;
-                       (btn as any)?.click();
-                    }}
-                    className="text-[9px] font-black uppercase bg-red-500 text-white px-2 py-1 rounded hover:bg-white hover:text-red-500 transition-all shrink-0"
-                  >
-                    立即修复
-                  </button>
-                )}
              </div>
           )}
           
@@ -123,14 +111,14 @@ const JobManager: React.FC<JobManagerProps> = ({ jobs, onUpdate, onRefresh, read
               onClick={() => processUpload(true)} 
               className="flex-1 py-4 bg-white text-black rounded-xl text-xs font-black uppercase hover:bg-red-500 hover:text-white transition-all active:scale-95 disabled:opacity-30"
             >
-              清空并重载云端
+              清空旧数据并同步
             </button>
             <button 
               disabled={isLoading || !pasteContent}
               onClick={() => processUpload(false)} 
               className="flex-1 py-4 border border-white/10 text-white rounded-xl text-xs font-black uppercase hover:bg-blue-600 transition-all active:scale-95 disabled:opacity-30"
             >
-              增量追加
+              增量追加新岗位
             </button>
           </div>
         </div>

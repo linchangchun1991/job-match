@@ -4,18 +4,17 @@ import { Job, ParsedResume, MatchResult } from '../types';
 
 const getAIClient = () => {
   const apiKey = process.env.API_KEY;
+  const baseUrl = process.env.GEMINI_BASE_URL; 
+  
   if (!apiKey) throw new Error("GEMINI_API_KEY 未配置，请联系系统管理员。");
-  return new GoogleGenAI({ apiKey });
+  
+  // @ts-ignore: SDK 支持 baseUrl
+  return new GoogleGenAI({ apiKey, baseUrl });
 };
 
-/**
- * 修复 AI 输出的 JSON 字符串中可能包含的尾随逗号
- */
 const cleanJsonResponse = (str: string): string => {
   try {
-    // 移除 markdown 代码块包裹
     const cleaned = str.replace(/```json\n?|```/g, '').trim();
-    // 使用正则移除对象或数组最后一个元素后的逗号 (如 {"a":1,} -> {"a":1})
     return cleaned.replace(/,\s*([\]}])/g, '$1');
   } catch {
     return str;
@@ -143,21 +142,62 @@ export const matchJobs = async (
   }
 };
 
+/**
+ * 智能解析岗位文本 V2 (Zeabur 专用优化版)
+ * 格式支持：公司 | 岗位1，岗位2，岗位3 | 地点 | 链接
+ * 逻辑：自动拆分中间的岗位名称，生成多条记录
+ */
 export const parseSmartJobs = async (rawText: string): Promise<any[]> => {
   if (!rawText) return [];
   const lines = rawText.split(/\n/).filter(l => l.trim());
   const jobs: any[] = [];
 
   for (const line of lines) {
-    const parts = line.split(/[|丨\t\s]{1,}/).map(p => p.trim()).filter(Boolean);
-    if (parts.length >= 2) {
-      const linkMatch = line.match(/https?:\/\/[^\s]+/i);
-      jobs.push({
-        company: parts[0],
-        title: parts[1],
-        location: parts[2] || '全国',
-        link: linkMatch ? linkMatch[0] : ''
-      });
+    // 1. 按竖线拆分 (支持中文丨和英文|)
+    const parts = line.split(/[|丨]/).map(p => p.trim());
+    
+    // 至少要有: 公司 | 岗位
+    if (parts.length < 2) continue;
+
+    const company = parts[0];
+    const rawTitles = parts[1]; // 例如 "产品类，技术类，职能类"
+    const location = parts[2] || '全国';
+    
+    // 2. 智能提取链接
+    // 如果第4部分存在且包含http，就用它；或者在整行里找 http
+    let link = parts[3] || '';
+    if (!link.includes('http')) {
+        const urlMatch = line.match(/https?:\/\/[^\s,，|丨]+/i);
+        if (urlMatch) link = urlMatch[0];
+    } else {
+        // 如果 parts[3] 只是链接的一部分（有时候会被截断），尝试修复或提取
+        const urlMatch = link.match(/https?:\/\/[^\s,，|丨]+/i);
+        if (urlMatch) link = urlMatch[0];
+    }
+
+    // 3. 处理“一行多岗”逻辑
+    // 按中文逗号、英文逗号、顿号、空格拆分岗位
+    // 例子: "产品类，技术类，职能类" -> ["产品类", "技术类", "职能类"]
+    const titles = rawTitles.split(/[,，、]/).map(t => t.trim()).filter(Boolean);
+
+    // 4. 裂变为多个 Job 对象
+    if (titles.length > 0) {
+        for (const title of titles) {
+            jobs.push({
+                company,
+                title, 
+                location,
+                link
+            });
+        }
+    } else {
+        // 如果没有逗号，就当做一个岗位
+        jobs.push({
+            company,
+            title: rawTitles,
+            location,
+            link
+        });
     }
   }
   return jobs;
