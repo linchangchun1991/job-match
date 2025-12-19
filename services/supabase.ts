@@ -3,16 +3,15 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * 生产级 Supabase 客户端初始化
- * 逻辑：仅使用预设的环境变量，确保“零配置”体验。
  */
 export const getSupabase = (): SupabaseClient | null => {
   try {
-    // 严格从 Vite/Zeabur 注入的环境变量中读取
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_KEY;
 
-    if (!url || !key || !url.startsWith('http')) {
-      console.error("CRITICAL: 系统预置数据库配置缺失，请检查环境变量设置。");
+    // 调试日志（生产环境建议关闭，调试期开启）
+    if (!url || !key) {
+      console.warn("Supabase Config Missing: URL or KEY is undefined in process.env");
       return null;
     }
 
@@ -24,12 +23,13 @@ export const getSupabase = (): SupabaseClient | null => {
       }
     });
   } catch (e) {
-    console.error("Supabase 初始化失败:", e);
+    console.error("Supabase Initialization Error:", e);
     return null;
   }
 };
 
 export const isCloudEnabled = () => {
   const supabase = getSupabase();
-  return !!supabase;
+  if (!supabase) return false;
+  return true;
 };

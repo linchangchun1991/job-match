@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [react()],
   base: '/', 
   define: {
-    // 注入环境变量，优先读取 Zeabur/系统配置的环境变量
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY || ''),
+    // 强制映射环境变量，确保前端 process.env 能够读取到 Zeabur 后台设定的值
+    'process.env.API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || process.env.API_KEY || ''),
     'process.env.SUPABASE_URL': JSON.stringify(process.env.SUPABASE_URL || ''),
     'process.env.SUPABASE_KEY': JSON.stringify(process.env.SUPABASE_KEY || '')
   }

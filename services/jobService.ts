@@ -12,7 +12,10 @@ interface SyncResult {
 export const jobService = {
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
-    if (!supabase) return storage.getJobs();
+    if (!supabase) {
+      console.warn("Supabase not available, using local storage fallback.");
+      return storage.getJobs();
+    }
     
     try {
       const { data, error } = await supabase
@@ -20,7 +23,10 @@ export const jobService = {
         .select('*')
         .order('id', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase fetch error:", error);
+        return storage.getJobs();
+      }
       
       return (data || []).map((item: any) => ({
         id: String(item.id),
@@ -28,13 +34,12 @@ export const jobService = {
         title: item.title || '招聘岗位',
         location: item.location || '全国', 
         requirement: item.requirement || '',
-        link: item.link || item.url || '',
+        link: item.link || '', // 确保字段名与 SQL 脚本一致
         updateTime: item.created_at?.split('T')[0] || '',
         type: item.type || ''
       }));
     } catch (e: any) {
-      console.error("Cloud fetch error:", e);
-      // 如果云端失败，返回本地缓存作为兜底，但在 UI 提示
+      console.error("Cloud connection failed:", e);
       return storage.getJobs();
     }
   },
@@ -46,7 +51,7 @@ export const jobService = {
       const existing = storage.getJobs();
       const updated = [...jobs, ...existing].slice(0, 1000);
       storage.setJobs(updated);
-      return { success: true, message: "⚠️ 未配置云数据库，已保存至本地存储", count: jobs.length };
+      return { success: true, message: "⚠️ 离线模式：已存入本地浏览器缓存", count: jobs.length };
     }
 
     try {
@@ -54,7 +59,7 @@ export const jobService = {
         company: j.company,
         title: j.title,
         location: j.location,
-        link: j.link || '',
+        link: j.link || '', // 这里必须与 Supabase 表中的列名完全一致
         requirement: j.requirement || '',
         type: j.type || ''
       }));
@@ -62,9 +67,16 @@ export const jobService = {
       const { error } = await supabase.from('jobs').insert(rows);
       
       if (error) {
+        // 提供针对 link 字段缺失的修复建议
+        if (error.code === 'PGRST204') {
+          return { 
+            success: false, 
+            message: `字段缺失：请在【设置】中复制 SQL 并在 Supabase 运行，以添加 link 字段。` 
+          };
+        }
         return { 
           success: false, 
-          message: `云端同步失败: ${error.message} (代码: ${error.code})。请确保已在 Supabase 运行建表 SQL。` 
+          message: `同步失败: ${error.message}` 
         };
       }
 
@@ -82,7 +94,6 @@ export const jobService = {
     }
 
     try {
-      // 这里的逻辑需要 RLS 策略支持 DELETE
       const { error } = await supabase.from('jobs').delete().neq('id', -1);
       if (error) throw error;
       return { success: true, message: '云端数据库已清空' };
