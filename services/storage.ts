@@ -1,3 +1,4 @@
+
 import { Job, MatchResult, MatchSession } from '../types';
 
 const KEYS = {
@@ -6,7 +7,7 @@ const KEYS = {
   SESSIONS: 'careermatch_sessions',
   SUPABASE_URL: 'careermatch_supabase_url',
   SUPABASE_KEY: 'careermatch_supabase_key',
-  QWEN_KEY: 'careermatch_qwen_key'
+  API_KEY: 'careermatch_gemini_key'
 };
 
 export const storage = {
@@ -39,7 +40,6 @@ export const storage = {
   },
 
   getSupabaseConfig: () => {
-    // 强制去除首尾空格
     const url = (localStorage.getItem(KEYS.SUPABASE_URL) || "").trim();
     const key = (localStorage.getItem(KEYS.SUPABASE_KEY) || "").trim();
     return { url, key };
@@ -50,6 +50,6 @@ export const storage = {
     localStorage.setItem(KEYS.SUPABASE_KEY, key.trim());
   },
 
-  getQwenKey: () => localStorage.getItem(KEYS.QWEN_KEY) || '',
-  setQwenKey: (key: string) => localStorage.setItem(KEYS.QWEN_KEY, key.trim())
+  getApiKey: () => localStorage.getItem(KEYS.API_KEY) || '',
+  setApiKey: (key: string) => localStorage.setItem(KEYS.API_KEY, key.trim())
 };

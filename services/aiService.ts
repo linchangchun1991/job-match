@@ -5,10 +5,10 @@ import { Job, ParsedResume, MatchResult } from '../types';
 /**
  * 获取 AI 客户端实例
  */
-const getAIClient = () => {
-  const apiKey = process.env.API_KEY;
+const getAIClient = (customKey?: string) => {
+  const apiKey = customKey || process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key 未配置。请在系统环境变量或 Vercel Settings 中设置 API_KEY。");
+    throw new Error("Gemini API Key 未配置。请在系统设置中填入有效的 API Key。");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -16,9 +16,9 @@ const getAIClient = () => {
 /**
  * 简历智能解析
  */
-export const parseResume = async (text: string): Promise<ParsedResume> => {
+export const parseResume = async (text: string, apiKey?: string): Promise<ParsedResume> => {
   try {
-    const ai = getAIClient();
+    const ai = getAIClient(apiKey);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `你是一位顶级 HR 专家。请解析以下简历内容并生成标准画像：\n${text.slice(0, 8000)}`,
@@ -81,13 +81,14 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
 export const matchJobs = async (
   resume: ParsedResume, 
   jobs: Job[],
+  apiKey?: string,
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
   const validJobs = jobs.slice(0, 100);
   if (validJobs.length === 0) return [];
 
   try {
-    const ai = getAIClient();
+    const ai = getAIClient(apiKey);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `

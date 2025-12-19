@@ -54,14 +54,29 @@ const App: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { initData(); }, []);
+  useEffect(() => { 
+    initData(); 
+  }, []);
 
   const initData = async () => {
     try {
+      let key = storage.getApiKey();
+      // 如果没有存储 Key，则设置默认 Key
+      if (!key || key.trim() === '') {
+        key = 'AIzaSyBQquueBtsfVxqMQy4GV6kKaqLjVU9Wo20';
+        storage.setApiKey(key);
+      }
+
       const history = storage.getSessions();
       const jobs = await jobService.fetchAll();
-      console.log("System Initialized. Jobs loaded:", jobs?.length);
-      setState(s => ({ ...s, jobs: jobs || [], matchHistory: history || [] }));
+      console.log("System Initialized. Active API Key Found:", !!key);
+      
+      setState(s => ({ 
+        ...s, 
+        apiKey: key,
+        jobs: jobs || [], 
+        matchHistory: history || [] 
+      }));
     } catch (err) {
       console.error("Initialization failed:", err);
       setState(s => ({ ...s, jobs: [] }));
@@ -70,7 +85,8 @@ const App: React.FC = () => {
 
   const refreshJobs = async () => {
     const jobs = await jobService.fetchAll();
-    setState(s => ({ ...s, jobs: jobs || [] }));
+    const key = storage.getApiKey();
+    setState(s => ({ ...s, jobs: jobs || [], apiKey: key }));
   };
 
   const handleLogin = (role: UserRole) => {
@@ -95,38 +111,44 @@ const App: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    console.log("Match Button Clicked. Current Jobs:", state.jobs.length);
+    const currentKey = state.apiKey || storage.getApiKey();
     
+    if (!currentKey || currentKey.trim() === '') {
+      alert("请点击右上角设置图标，填入有效 Gemini API Key 后再使用。");
+      setState(s => ({ ...s, settingsOpen: true }));
+      return;
+    }
+
     if (!state.currentResume.trim()) { 
-      alert("请先上传或粘贴简历内容"); 
+      alert("请上传简历文件或在文本框中输入简历内容"); 
       return; 
     }
     
     if (state.jobs.length === 0) { 
-      alert("岗位库为空！请先点击下方的‘岗位管理控制台’，输入并‘同步’一些岗位后再尝试匹配。"); 
+      alert("当前岗位库为空！请在下方控制台添加并同步岗位数据。"); 
       return; 
     }
 
     setState(s => ({ ...s, isAnalyzing: true, matchResults: [], parsedResume: null }));
-    setLoadingStep('AI 正在进行深度语义解析...');
+    setLoadingStep('AI 正在进行深度语义画像解析...');
     setProgress(10);
 
     try {
-      const parsed = await parseResume(state.currentResume);
-      console.log("Resume Parsed successfully:", parsed.name);
+      const parsed = await parseResume(state.currentResume, currentKey);
+      console.log("Resume Parsed:", parsed.name);
       setProgress(40);
-      setLoadingStep('正在从全量库挖掘匹配项...');
+      setLoadingStep('正在全库搜索最匹配岗位...');
       
       setState(s => ({ ...s, parsedResume: parsed, isMatching: true }));
       
-      const finalMatches = await matchJobs(parsed, state.jobs, (newBatch) => {
+      const finalMatches = await matchJobs(parsed, state.jobs, currentKey, (newBatch) => {
         setProgress(85);
         setState(current => ({ ...current, matchResults: newBatch }));
       });
       
-      console.log("Matching completed. Found:", finalMatches.length);
+      console.log("Matching completed:", finalMatches.length);
       setProgress(100);
-      setLoadingStep('专家级匹配已完成');
+      setLoadingStep('智能匹配已就绪');
 
       const newSession: MatchSession = { 
         id: Date.now().toString(), 
@@ -137,32 +159,23 @@ const App: React.FC = () => {
         results: finalMatches 
       };
       storage.saveSession(newSession);
-      setState(s => ({ ...s, matchResults: finalMatches, isAnalyzing: false, isMatching: false, matchHistory: storage.getSessions() }));
+      setState(s => ({ 
+        ...s, 
+        matchResults: finalMatches, 
+        isAnalyzing: false, 
+        isMatching: false, 
+        matchHistory: storage.getSessions() 
+      }));
       
-      setTimeout(() => {
-        setLoadingStep('');
-        setProgress(0);
-      }, 2000);
+      setTimeout(() => { setLoadingStep(''); setProgress(0); }, 2000);
     } catch (error: any) {
       console.error("Match Analysis Error:", error);
-      alert("匹配过程中出错: " + error.message);
+      alert("解析或匹配失败: " + error.message);
       setState(s => ({ ...s, isAnalyzing: false, isMatching: false }));
       setLoadingStep('');
       setProgress(0);
     }
   };
-
-  const ScoreBar = ({ label, score, colorClass = "bg-blue-600" }: { label: string, score: number, colorClass?: string }) => (
-    <div className="mb-4">
-      <div className="flex justify-between text-[11px] text-gray-500 mb-1.5 uppercase font-bold tracking-wider">
-        <span>{label}</span>
-        <span className="font-mono text-white">{score}</span>
-      </div>
-      <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-1000 ${colorClass}`} style={{ width: `${score}%` }} />
-      </div>
-    </div>
-  );
 
   if (!state.userRole) {
     return <Login onLogin={handleLogin} />;
@@ -218,10 +231,10 @@ const App: React.FC = () => {
                   className="w-full h-40 bg-black/50 border border-gray-800 rounded-xl p-4 text-xs text-gray-300 focus:border-blue-600 focus:outline-none transition-all resize-none custom-scrollbar font-mono mb-4"
                 />
 
-                {state.jobs.length === 0 && (
-                  <div className="mb-4 flex items-center gap-2 text-amber-500 bg-amber-500/10 border border-amber-500/20 p-3 rounded-lg animate-pulse">
+                {!state.apiKey && (
+                  <div className="mb-4 flex items-center gap-2 text-red-500 bg-red-500/10 border border-red-500/20 p-3 rounded-lg">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-[11px] font-bold">警告：当前岗位库为空，无法进行匹配</span>
+                    <span className="text-[11px] font-bold">错误：API Key 未激活，请点击右上角设置</span>
                   </div>
                 )}
 
@@ -229,7 +242,7 @@ const App: React.FC = () => {
                   onClick={handleStartAnalysis}
                   disabled={state.isAnalyzing || state.isMatching}
                   className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 relative overflow-hidden shadow-2xl ${
-                    state.jobs.length === 0 
+                    state.isAnalyzing || state.isMatching || (!state.apiKey && !storage.getApiKey())
                     ? 'bg-gray-800 text-gray-500 cursor-not-allowed' 
                     : 'bg-white text-black hover:bg-blue-500 hover:text-white active:scale-95'
                   }`}
@@ -249,7 +262,31 @@ const App: React.FC = () => {
 
               {state.parsedResume && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-                  {/* 画像内容省略... */}
+                  <div className="bg-[#111116] border border-[#27272a] rounded-xl p-5">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-widest">
+                        <UserIcon className="w-3.5 h-3.5 text-blue-400" /> 候选人画像
+                      </h3>
+                      <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-[10px] rounded border border-blue-600/30 font-bold uppercase tracking-tighter">
+                        ATS Score: {state.parsedResume.atsScore}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                      <div className="p-3 bg-black/40 border border-white/5 rounded-lg">
+                         <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">核心领域</p>
+                         <p className="text-xs text-blue-400 font-medium">{safeRender(state.parsedResume.coreDomain)}</p>
+                      </div>
+                      <div className="p-3 bg-black/40 border border-white/5 rounded-lg">
+                         <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">资历评估</p>
+                         <p className="text-xs text-purple-400 font-medium">{safeRender(state.parsedResume.seniorityLevel)}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {state.parsedResume.coreTags?.map((tag, i) => (
+                        <span key={i} className="px-2 py-1 bg-gray-900 text-[10px] text-gray-400 rounded border border-gray-800">#{tag}</span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -260,7 +297,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* 管理员界面和 JobManager ... */}
         <JobManager 
           jobs={state.jobs} 
           onUpdate={(updated) => setState(s => ({ ...s, jobs: updated }))} 
