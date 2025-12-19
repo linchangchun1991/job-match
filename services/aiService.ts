@@ -2,24 +2,35 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Job, ParsedResume, MatchResult } from '../types';
 
-// Create AI client using the mandated process.env.API_KEY
 const getAIClient = () => {
-  // 严格遵守：仅从 process.env.API_KEY 获取，不设硬编码回退
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY 未配置，请联系系统管理员。");
   return new GoogleGenAI({ apiKey });
 };
 
+/**
+ * 修复 AI 输出的 JSON 字符串中可能包含的尾随逗号
+ */
+const cleanJsonResponse = (str: string): string => {
+  try {
+    // 移除 markdown 代码块包裹
+    const cleaned = str.replace(/```json\n?|```/g, '').trim();
+    // 使用正则移除对象或数组最后一个元素后的逗号 (如 {"a":1,} -> {"a":1})
+    return cleaned.replace(/,\s*([\]}])/g, '$1');
+  } catch {
+    return str;
+  }
+};
+
 export const parseResume = async (text: string): Promise<ParsedResume> => {
   try {
     const ai = getAIClient();
-    // Using gemini-3-pro-preview for complex reasoning in resume parsing
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: `你是一个专业的求职咨询专家。请分析以下简历文本，提取候选人画像。
 要求：
-1. 提取核心领域（如：互联网营销、Java开发）。
-2. 评估资历等级（如：应届生、初级、资深）。
+1. 提取核心领域。
+2. 评估资历等级。
 3. 给出 ATS 适配分 (0-100)。
 4. 提取 5 个核心关键词。
 
@@ -57,8 +68,7 @@ export const parseResume = async (text: string): Promise<ParsedResume> => {
       }
     });
     
-    // Access text property directly (not a method) as per guidelines
-    const jsonStr = response.text || '{}';
+    const jsonStr = cleanJsonResponse(response.text || '{}');
     const data = JSON.parse(jsonStr);
     return {
       ...data,
@@ -81,11 +91,10 @@ export const matchJobs = async (
   onProgress?: (newMatches: MatchResult[]) => void
 ): Promise<MatchResult[]> => {
   if (jobs.length === 0) return [];
-  const sampleJobs = jobs.slice(0, 100); // 选取最近100个岗位进行匹配
+  const sampleJobs = jobs.slice(0, 100);
 
   try {
     const ai = getAIClient();
-    // Using gemini-3-pro-preview for high-quality matching recommendations
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: `你是一个金牌职业教练。请根据候选人画像，从提供的岗位列表中选出最匹配的 10 个。
@@ -112,8 +121,7 @@ export const matchJobs = async (
       }
     });
 
-    // Access text property directly (not a method) as per guidelines
-    const jsonStr = response.text || '{"matches":[]}';
+    const jsonStr = cleanJsonResponse(response.text || '{"matches":[]}');
     const parsed = JSON.parse(jsonStr);
     const results = (parsed.matches || []).map((m: any) => {
       const job = sampleJobs[m.idx];

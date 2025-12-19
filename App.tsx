@@ -63,12 +63,10 @@ const App: React.FC = () => {
     initData(); 
   }, []);
 
-  // 检查云端连接
   useEffect(() => {
     setCloudActive(isCloudEnabled());
   }, [state.settingsOpen]);
 
-  // 计时器逻辑
   useEffect(() => {
     if (state.isAnalyzing || state.isMatching) {
       timerRef.current = window.setInterval(() => {
@@ -126,7 +124,7 @@ const App: React.FC = () => {
     }
     
     if (state.jobs.length === 0) { 
-      alert("岗位库为空！系统正在尝试从云端同步，请稍后再试或检查网络。"); 
+      alert("岗位库为空！正在尝试从阿里云同步数据，请稍后。"); 
       refreshJobs();
       return; 
     }
@@ -134,24 +132,24 @@ const App: React.FC = () => {
     const est = 15;
     setEstimatedTime(est);
     setState(s => ({ ...s, isAnalyzing: true, matchResults: [], parsedResume: null }));
-    setLoadingStep('AI 画像建模中 (预计 5s)...');
+    setLoadingStep('AI 画像建模中...');
     setProgress(10);
 
     try {
       const parsed = await parseResume(state.currentResume);
       setProgress(40);
-      setLoadingStep('语义索引匹配中 (预计 8s)...');
+      setLoadingStep('语义索引匹配中...');
       
       setState(s => ({ ...s, parsedResume: parsed, isMatching: true }));
       
       const finalMatches = await matchJobs(parsed, state.jobs, (newBatch) => {
         setProgress(85);
-        setLoadingStep('生成教练推荐语中 (预计 2s)...');
+        setLoadingStep('生成教练推荐语中...');
         setState(current => ({ ...current, matchResults: newBatch }));
       });
       
       setProgress(100);
-      setLoadingStep('智能匹配已完成');
+      setLoadingStep('匹配完成');
 
       const newSession: MatchSession = { 
         id: Date.now().toString(), 
@@ -199,20 +197,20 @@ const App: React.FC = () => {
             <div className="h-4 w-[1px] bg-gray-800"></div>
             <div className="flex items-center gap-2">
                {cloudActive ? (
-                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 border border-green-500/20">
-                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                    <span className="text-[10px] text-green-500 font-black uppercase tracking-widest">Database Linked</span>
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#ff6a00]/10 border border-[#ff6a00]/20">
+                    <div className="w-1.5 h-1.5 bg-[#ff6a00] rounded-full animate-pulse"></div>
+                    <span className="text-[10px] text-[#ff6a00] font-black uppercase tracking-widest">阿里云 RDS 已直连</span>
                  </div>
                ) : (
-                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20">
-                    <AlertTriangle className="w-3 h-3 text-yellow-500" />
-                    <span className="text-[10px] text-yellow-500 font-black uppercase tracking-widest">Offline Cache</span>
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10 border border-red-500/20">
+                    <AlertTriangle className="w-3 h-3 text-red-500" />
+                    <span className="text-[10px] text-red-500 font-black uppercase tracking-widest">离线模式 (请配置云数据库)</span>
                  </div>
                )}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-blue-500 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 mr-2 uppercase font-bold">
+            <span className="text-[11px] text-[#ff6a00] bg-[#ff6a00]/10 px-2 py-1 rounded border border-[#ff6a00]/20 mr-2 uppercase font-bold">
               {isCoach ? 'Coach' : 'Admin'}
             </span>
             {isCoach && (
@@ -230,15 +228,15 @@ const App: React.FC = () => {
             <div className="lg:col-span-5 space-y-8">
               <div className="bg-[#111116] border border-[#27272a] rounded-2xl p-6 shadow-xl relative overflow-hidden">
                 <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                  <FileText className="w-3 h-3 text-blue-500" /> 简历解析系统
+                  <FileText className="w-3 h-3 text-[#ff6a00]" /> 简历解析系统
                 </h2>
                 
                 <div 
-                  className="border-2 border-dashed border-gray-800 rounded-xl p-8 mb-4 text-center hover:border-blue-500/50 hover:bg-blue-500/5 transition-all cursor-pointer group"
+                  className="border-2 border-dashed border-gray-800 rounded-xl p-8 mb-4 text-center hover:border-[#ff6a00]/50 hover:bg-[#ff6a00]/5 transition-all cursor-pointer group"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} />
-                  <Upload className="w-8 h-8 text-gray-600 group-hover:text-blue-500 mx-auto mb-3 transition-colors" />
+                  <Upload className="w-8 h-8 text-gray-600 group-hover:text-[#ff6a00] mx-auto mb-3 transition-colors" />
                   <p className="text-xs text-gray-500 font-medium">点击或拖拽简历文件 (PDF/Word)</p>
                 </div>
 
@@ -246,7 +244,7 @@ const App: React.FC = () => {
                   value={state.currentResume} 
                   onChange={(e) => setState(s => ({ ...s, currentResume: e.target.value }))}
                   placeholder="或者在此粘贴简历文本..."
-                  className="w-full h-40 bg-black/50 border border-gray-800 rounded-xl p-4 text-xs text-gray-300 focus:border-blue-600 focus:outline-none transition-all resize-none custom-scrollbar font-mono mb-4"
+                  className="w-full h-40 bg-black/50 border border-gray-800 rounded-xl p-4 text-xs text-gray-300 focus:border-[#ff6a00] focus:outline-none transition-all resize-none custom-scrollbar font-mono mb-4"
                 />
 
                 <div className="relative">
@@ -256,12 +254,12 @@ const App: React.FC = () => {
                     className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 relative overflow-hidden shadow-2xl ${
                       state.isAnalyzing || state.isMatching
                       ? 'bg-gray-800 text-gray-500 cursor-not-allowed' 
-                      : 'bg-white text-black hover:bg-blue-500 hover:text-white active:scale-95'
+                      : 'bg-white text-black hover:bg-[#ff6a00] hover:text-white active:scale-95'
                     }`}
                   >
                     <span className="relative z-10 flex items-center gap-2">
                       {state.isAnalyzing || state.isMatching ? (
-                        <><Zap className="w-4 h-4 animate-spin text-blue-600" /> {loadingStep || '正在处理...'}</>
+                        <><Zap className="w-4 h-4 animate-spin text-[#ff6a00]" /> {loadingStep || '正在处理...'}</>
                       ) : (
                         <><Sparkles className="w-4 h-4" /> 开始猎头级智能匹配</>
                       )}
@@ -271,14 +269,14 @@ const App: React.FC = () => {
                   {(state.isAnalyzing || state.isMatching) && (
                     <div className="mt-4 animate-in fade-in duration-500">
                       <div className="flex justify-between items-end mb-2">
-                        <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                        <span className="text-[10px] text-[#ff6a00] font-bold uppercase tracking-widest flex items-center gap-1">
                            <Timer className="w-3 h-3" /> 预计还需 {remainingTime} 秒
                         </span>
                         <span className="text-[10px] text-gray-500 font-mono">{progress}%</span>
                       </div>
                       <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-gradient-to-r from-blue-600 to-indigo-400 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(37,99,235,0.5)]" 
+                          className="h-full bg-gradient-to-r from-[#ff6a00] to-orange-400 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(255,106,0,0.5)]" 
                           style={{ width: `${progress}%` }}
                         ></div>
                       </div>
@@ -290,69 +288,78 @@ const App: React.FC = () => {
               {state.parsedResume && (
                 <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
                   <div className="bg-[#111116] border border-[#27272a] rounded-xl p-5">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-widest">
-                        <UserIcon className="w-3.5 h-3.5 text-blue-400" /> 候选人画像
-                      </h3>
-                      <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-[10px] rounded border border-blue-600/30 font-bold uppercase tracking-tighter">
-                        ATS Score: {state.parsedResume.atsScore}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mb-6">
-                      <div className="p-3 bg-black/40 border border-white/5 rounded-lg">
-                         <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">核心领域</p>
-                         <p className="text-xs text-blue-400 font-medium">{safeRender(state.parsedResume.coreDomain)}</p>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <UserIcon className="w-4 h-4 text-[#ff6a00]" />
+                        <span className="text-xs font-bold text-white">候选人画像</span>
                       </div>
-                      <div className="p-3 bg-black/40 border border-white/5 rounded-lg">
-                         <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">资历评估</p>
-                         <p className="text-xs text-purple-400 font-medium">{safeRender(state.parsedResume.seniorityLevel)}</p>
+                      <div className="text-[10px] bg-[#ff6a00]/20 text-[#ff6a00] px-2 py-0.5 rounded font-bold">
+                        ATS SCORE: {state.parsedResume.atsScore}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {state.parsedResume.coreTags?.map((tag, i) => (
-                        <span key={i} className="px-2 py-1 bg-gray-900 text-[10px] text-gray-400 rounded border border-gray-800">#{tag}</span>
-                      ))}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-black/40 rounded-lg border border-white/5">
+                        <p className="text-[10px] text-gray-500 uppercase font-black mb-1">核心领域</p>
+                        <p className="text-xs text-blue-100 font-bold">{state.parsedResume.coreDomain}</p>
+                      </div>
+                      <div className="p-3 bg-black/40 rounded-lg border border-white/5">
+                        <p className="text-[10px] text-gray-500 uppercase font-black mb-1">资历评估</p>
+                        <p className="text-xs text-blue-100 font-bold">{state.parsedResume.seniorityLevel}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="lg:col-span-7">
-              <MatchResults results={state.matchResults} candidateName={safeRender(state.parsedResume?.name) || '候选人'} />
+            <div className="lg:col-span-7 h-[calc(100vh-10rem)] sticky top-24">
+               <MatchResults results={state.matchResults} candidateName={state.parsedResume?.name || '候选人'} />
             </div>
           </div>
         )}
 
-        <JobManager 
-          jobs={state.jobs} 
-          onUpdate={(updated) => setState(s => ({ ...s, jobs: updated }))} 
-          onRefresh={refreshJobs} 
-          readOnly={isCoach} 
-          defaultOpen={isBD} 
-        />
+        {isBD && (
+          <div className="max-w-4xl mx-auto space-y-12">
+            <div className="text-center space-y-4">
+              <h2 className="text-4xl font-black italic tracking-tighter uppercase">阿里云数据中心</h2>
+              <p className="text-gray-500 text-sm max-w-lg mx-auto leading-relaxed">
+                BD 专供：在此同步最新的招聘岗位到阿里云官方 RDS 库。
+              </p>
+            </div>
+            
+            <JobManager 
+              jobs={state.jobs} 
+              onUpdate={(newJobs) => setState(s => ({ ...s, jobs: newJobs }))} 
+              defaultOpen={true}
+            />
+          </div>
+        )}
       </main>
 
       <SettingsModal 
         isOpen={state.settingsOpen} 
+        onClose={() => setState(s => ({ ...s, settingsOpen: false }))}
+        onSave={initData}
         userRole={state.userRole}
-        onClose={() => setState(s => ({ ...s, settingsOpen: false }))} 
-        onSave={() => { refreshJobs(); }} 
       />
+
       <HistoryDrawer 
-        isOpen={state.historyOpen} 
-        onClose={() => setState(s => ({ ...s, historyOpen: false }))} 
-        history={state.matchHistory} 
-        onSelect={(session) => { 
+        isOpen={state.historyOpen}
+        onClose={() => setState(s => ({ ...s, historyOpen: false }))}
+        history={state.matchHistory}
+        onSelect={(session) => {
           setState(s => ({ 
             ...s, 
-            currentResume: session.resumeText, 
             parsedResume: session.parsedResume, 
             matchResults: session.results, 
+            currentResume: session.resumeText,
             historyOpen: false 
-          })); 
-        }} 
-        onClear={() => { if(confirm('确定清空记录？')) { storage.clearSessions(); setState(s => ({ ...s, matchHistory: [] })); } }} 
+          }));
+        }}
+        onClear={() => {
+          const empty = storage.clearSessions();
+          setState(s => ({ ...s, matchHistory: empty }));
+        }}
       />
     </div>
   );

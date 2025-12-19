@@ -13,7 +13,7 @@ export const jobService = {
   fetchAll: async (): Promise<Job[]> => {
     const supabase = getSupabase();
     if (!supabase) {
-      console.warn("Supabase not available, using local storage fallback.");
+      console.warn("Cloud not available, using local cache.");
       return storage.getJobs();
     }
     
@@ -24,7 +24,7 @@ export const jobService = {
         .order('id', { ascending: false });
 
       if (error) {
-        console.error("Supabase fetch error:", error);
+        console.error("Fetch error:", error);
         return storage.getJobs();
       }
       
@@ -34,12 +34,11 @@ export const jobService = {
         title: item.title || '招聘岗位',
         location: item.location || '全国', 
         requirement: item.requirement || '',
-        link: item.link || '', // 确保字段名与 SQL 脚本一致
+        link: item.link || '', 
         updateTime: item.created_at?.split('T')[0] || '',
         type: item.type || ''
       }));
     } catch (e: any) {
-      console.error("Cloud connection failed:", e);
       return storage.getJobs();
     }
   },
@@ -59,7 +58,7 @@ export const jobService = {
         company: j.company,
         title: j.title,
         location: j.location,
-        link: j.link || '', // 这里必须与 Supabase 表中的列名完全一致
+        link: j.link || '',
         requirement: j.requirement || '',
         type: j.type || ''
       }));
@@ -67,11 +66,10 @@ export const jobService = {
       const { error } = await supabase.from('jobs').insert(rows);
       
       if (error) {
-        // 提供针对 link 字段缺失的修复建议
-        if (error.code === 'PGRST204') {
+        if (error.code === 'PGRST204' || error.message.includes('column')) {
           return { 
             success: false, 
-            message: `字段缺失：请在【设置】中复制 SQL 并在 Supabase 运行，以添加 link 字段。` 
+            message: `字段缺失：请在【设置】中复制脚本并在国内云 SQL 编辑器运行。` 
           };
         }
         return { 
@@ -80,7 +78,7 @@ export const jobService = {
         };
       }
 
-      return { success: true, message: "✅ 云端同步成功！", count: jobs.length };
+      return { success: true, message: "🚀 国内云同步成功！岗位已入库。", count: jobs.length };
     } catch (e: any) {
       return { success: false, message: `同步异常: ${e.message}` };
     }
@@ -96,7 +94,7 @@ export const jobService = {
     try {
       const { error } = await supabase.from('jobs').delete().neq('id', -1);
       if (error) throw error;
-      return { success: true, message: '云端数据库已清空' };
+      return { success: true, message: '国内云岗位库已完全清空' };
     } catch (e: any) {
       return { success: false, message: `清空失败: ${e.message}` };
     }
