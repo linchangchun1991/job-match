@@ -1,21 +1,18 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { storage } from './storage';
 
+/**
+ * 生产级 Supabase 客户端初始化
+ * 逻辑：仅使用预设的环境变量，确保“零配置”体验。
+ */
 export const getSupabase = (): SupabaseClient | null => {
   try {
-    // 优先从本地存储读取（用户手动配置）
-    const config = storage.getSupabaseConfig();
-    let url = config.url;
-    let key = config.key;
+    // 严格从 Vite/Zeabur 注入的环境变量中读取
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_KEY;
 
-    // 其次从环境变量读取（系统自动注入）
-    if (!url || !key) {
-      url = process.env.SUPABASE_URL || '';
-      key = process.env.SUPABASE_KEY || '';
-    }
-    
     if (!url || !key || !url.startsWith('http')) {
+      console.error("CRITICAL: 系统预置数据库配置缺失，请检查环境变量设置。");
       return null;
     }
 
@@ -27,7 +24,7 @@ export const getSupabase = (): SupabaseClient | null => {
       }
     });
   } catch (e) {
-    console.error("Supabase 客户端初始化异常:", e);
+    console.error("Supabase 初始化失败:", e);
     return null;
   }
 };

@@ -126,7 +126,8 @@ const App: React.FC = () => {
     }
     
     if (state.jobs.length === 0) { 
-      alert("岗位库为空！如果你确认云端有数据，请点击右上角齿轮检查数据库连接配置。"); 
+      alert("岗位库为空！系统正在尝试从云端同步，请稍后再试或检查网络。"); 
+      refreshJobs();
       return; 
     }
 
@@ -199,13 +200,13 @@ const App: React.FC = () => {
             <div className="flex items-center gap-2">
                {cloudActive ? (
                  <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 border border-green-500/20">
-                    <CheckCircle className="w-3 h-3 text-green-500" />
-                    <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest">Cloud Sync Active</span>
+                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                    <span className="text-[10px] text-green-500 font-black uppercase tracking-widest">Database Linked</span>
                  </div>
                ) : (
-                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10 border border-red-500/20">
-                    <AlertTriangle className="w-3 h-3 text-red-500" />
-                    <span className="text-[10px] text-red-500 font-bold uppercase tracking-widest">Local Mode Only</span>
+                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20">
+                    <AlertTriangle className="w-3 h-3 text-yellow-500" />
+                    <span className="text-[10px] text-yellow-500 font-black uppercase tracking-widest">Offline Cache</span>
                  </div>
                )}
             </div>
@@ -332,7 +333,12 @@ const App: React.FC = () => {
         />
       </main>
 
-      <SettingsModal isOpen={state.settingsOpen} onClose={() => setState(s => ({ ...s, settingsOpen: false }))} onSave={() => { refreshJobs(); }} />
+      <SettingsModal 
+        isOpen={state.settingsOpen} 
+        userRole={state.userRole}
+        onClose={() => setState(s => ({ ...s, settingsOpen: false }))} 
+        onSave={() => { refreshJobs(); }} 
+      />
       <HistoryDrawer 
         isOpen={state.historyOpen} 
         onClose={() => setState(s => ({ ...s, historyOpen: false }))} 
